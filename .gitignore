@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+build/
+dist/
+site/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Test and type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+.obsidian/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+第3讲/参考资料/hello-agents
+第4讲/参考资料/原课程资料/实验四/bert-chinese/
+第4讲/参考资料/原课程资料/实验四/bert-chinese.zip
+第4讲/实验四/bert-chinese/
