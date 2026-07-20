@@ -1,4 +1,4 @@
-# 第六讲：Agent 系统开发
+# 第八讲：Agent 系统开发
 
 > **设计说明**：本 PPT 共 38 张 Slide，聚焦概念与原理讲解，代码细节全部放到 notebook 中演示。每张 Slide 标注了对应的 notebook cell 编号，方便课堂对照。
 >
@@ -31,20 +31,22 @@
 
 ---
 
-### Slide 3｜承上启下：六讲完整路径
+### Slide 3｜承上启下：八讲完整路径
 
 ```
 第1讲 数据处理 + Vibe Coding 入门  →  会用 Pandas + 会与 AI 对话
-第2讲 机器学习 + AI 协作建模      →  会用 Scikit-learn + Spec-driven
-第3讲 NLP 基础 + Prompt 工程      →  会调 API + 会写 Prompt
-第4讲 NLP 进阶 + 模型微调         →  能微调 BERT + 理解 Transformer
-第5讲 大模型部署 + RAG            →  能部署模型 + 能搭 RAG 流水线
-第6讲 Agent 系统开发（本讲）      →  能开发完整 AI 应用
+第2讲 数据可视化 + AI 辅助表达    →  会用 Matplotlib/Seaborn + AI 迭代
+第3讲 Spec-driven + Python 工程化 →  会写规约 + 模块化/测试/质量
+第4讲 NLP 基础 + Prompt 工程      →  会调 API + 会写 Prompt
+第5讲 NLP 进阶 + 模型微调         →  能微调 BERT + 理解 Transformer
+第6讲 大模型部署 + RAG 基础       →  能部署模型 + 能搭 RAG 流水线
+第7讲 RAG 进阶 + Agent 记忆       →  高级检索 + 记忆系统
+第8讲 Agent 系统开发（本讲）      →  能开发完整 AI 应用
 ```
 
 **本讲完成最后一跃**：
-- 第5讲 RAG："给我一篇文档，我帮你找答案"——**被动检索**
-- 第6讲 Agent："给我一个目标，我自己想办法完成"——**主动行动**
+- 第6-7讲 RAG："给我一篇文档，我帮你找答案"——**被动检索**
+- 第8讲 Agent："给我一个目标，我自己想办法完成"——**主动行动**
 
 ---
 
@@ -52,7 +54,7 @@
 
 ### Slide 4｜RAG 的局限性  `[notebook c6]`
 
-**回顾第5讲：RAG 问答系统的流水线**
+**回顾第6-7讲：RAG 问答系统的流水线**
 
 ```
 用户提问 → 向量检索 → 拼 Prompt → LLM 生成回答
@@ -104,15 +106,15 @@
 | 组件 | 功能 | 类比 | 课程来源 |
 |---|---|---|---|
 | **规划（Planning）** | 任务拆解、推理决策、行动排序 | 大脑的"前额叶" | 第3讲 Prompt 工程延伸 |
-| **工具（Tools）** | 执行具体动作（搜索、计算、API） | 人的"双手" | 第5讲 RAG 封装为工具 |
-| **记忆（Memory）** | 保存对话历史、学习经验 | 人的"海马体" | 第5讲 Memory 概念落地 |
+| **工具（Tools）** | 执行具体动作（搜索、计算、API） | 人的"双手" | 第6-7讲 RAG 封装为工具 |
+| **记忆（Memory）** | 保存对话历史、学习经验 | 人的"海马体" | 第6-7讲 Memory 概念落地 |
 
-**第5讲已经准备好了什么？**
+**第6-7讲已经准备好了什么？**
 - RAG 流水线 → Agent 的**检索工具**
 - Memory 系统概念 → Agent 的**记忆组件**
 - Ollama 本地 LLM → Agent 的**大脑**
 
-> 本讲做的是"组装"——把第5讲的零件拼成一个完整的 Agent
+> 本讲做的是"组装"——把第6-7讲的零件拼成一个完整的 Agent
 
 ---
 
@@ -310,9 +312,9 @@ system → human → ai(tool_calls) → tool → ai(最终回答)
 ### Slide 15｜构建路线图  `[notebook c18]`
 
 ```
-Step 1: 准备 LLM（复用第5讲 Ollama）         [c11-c12]
+Step 1: 准备 LLM（复用第6-7讲 Ollama）         [c11-c12]
    ↓
-Step 2: 构建 RAG 知识库（复用第5讲流水线）    [c19-c23]
+Step 2: 构建 RAG 知识库（复用第6-7讲流水线）    [c19-c23]
    ↓
 Step 3: 封装 RAG 工具 + 计算器工具            [c24-c26]
    ↓
@@ -346,7 +348,7 @@ ChatOpenAI (LangChain)
 
 **与第3讲的区别**：
 
-| 维度 | 第3讲（纯 LLM） | 第6讲（Agent 大脑） |
+| 维度 | 第3讲（纯 LLM） | 第8讲（Agent 大脑） |
 |---|---|---|
 | 角色 | 回答问题 | 决策调用哪个工具 |
 | 输出 | 纯文本 | 可能是 tool_calls（JSON） |
@@ -358,7 +360,7 @@ ChatOpenAI (LangChain)
 
 ### Slide 17｜Step 2：RAG 知识库构建原理  `[notebook c19-c23]`
 
-**复用第5讲流水线**（不重新发明轮子）：
+**复用第6-7讲流水线**（不重新发明轮子）：
 
 ```
 航天产业报告.pdf
@@ -372,7 +374,7 @@ ChatOpenAI (LangChain)
     向量数据库（可检索）
 ```
 
-**为什么需要分块？（回顾第5讲原理）**：
+**为什么需要分块？（回顾第6-7讲原理）**：
 - 嵌入模型有 512 token 限制
 - 大段稀释语义
 - 检索精度更高
@@ -416,7 +418,7 @@ ChatOpenAI (LangChain)
                               语义相近 → 向量相近
 ```
 
-**ChromaDB 四要素**（回顾第5讲）：
+**ChromaDB 四要素**（回顾第6-7讲）：
 
 | 要素 | 类比 SQL | 说明 |
 |---|---|---|
@@ -646,7 +648,7 @@ session_id = "user_002"  → 另一个独立的 history
                           └───────────────┘
 ```
 
-> 从第1讲的 Pandas 到现在的完整 Agent——六讲的积累都在这张图里
+> 从第1讲的 Pandas 到现在的完整 Agent——八讲的积累都在这张图里
 
 ---
 
@@ -846,7 +848,7 @@ Vibe Coding 入门   Spec-driven         上下文工程
 
                                           │
                                           ▼
-第6讲                第5讲                第4讲
+第8讲                第6-7讲                第4讲
 Agent 系统 ◄────── 部署 + RAG ◄────── NLP 进阶
 LangChain Agent    Ollama + ChromaDB    BERT + LoRA
 Skills + MCP       Spec-driven 部署     HuggingFace
@@ -883,7 +885,7 @@ Skills + MCP       Spec-driven 部署     HuggingFace
 
 ---
 
-### Slide 38｜知识点速查 + 实验六说明 + 课程寄语
+### Slide 38｜知识点速查 + 实验八说明 + 课程寄语
 
 **核心概念速查表**：
 
@@ -896,7 +898,7 @@ Skills + MCP       Spec-driven 部署     HuggingFace
 | MCP | Agent ↔ Tool 的标准通信协议（USB-C） |
 | Skill | Prompt + 工具 + 约束 = 可复用的 Agent 能力单元 |
 
-**实验六**（课程最终实验）：
+**实验八**（课程最终实验）：
 - 基于航天产业报告构建智能问答 Agent
 - 5 个任务：RAG 工具封装 / ReAct Agent / 多轮记忆 / Gradio 界面 / 行为分析
 - 满分 100 分，综合运用第1-6讲所学
