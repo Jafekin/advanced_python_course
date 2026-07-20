@@ -1,10 +1,13 @@
-# 第五讲：大模型部署与检索增强生成（RAG）
+# 第四讲：NLP 进阶与模型微调
+
+## PPT 内容大纲（约 46 张 Slides）
+
 ---
 
 ### Slide 1｜封面
 
-**标题**：Python 进阶 · 第 5 讲
-**副标题**：大模型部署 × 检索增强生成（RAG）
+**标题**：Python 进阶 · 第 4 讲
+**副标题**：NLP 进阶与模型微调——从黑盒调用到白盒定制
 **教师**：孙青 / 欧阳元新 · 计算机学院
 **平台**：CloudStudio + CodeBuddy
 
@@ -12,834 +15,893 @@
 
 ### Slide 2｜本讲全景导航
 
-**两大板块，配套 Vibe Coding 工具：**
+**两条主线同步推进：**
 
-| 模块 | 主题 | 关键技术 | Vibe Coding 工具 |
-|---|---|---|---|
-| Part 1 | 大模型部署 | Ollama / 量化 / vLLM | Spec-driven（deploy_speckit.md） |
-| Part 2 | RAG 基础 | 三段式 / 三代演进 | 两段式 Prompt |
-| Part 3 | RAG 流水线 | 分块 / 向量化 / ChromaDB | Inline Edit + @文件引用 |
-| Part 4 | 高级检索 + 记忆 | MQE / HyDE / 记忆四类型 | Prompt 调优 / 上下文工程 |
-
-> 完成标准：能从零搭一个领域文档问答系统，并理解 Agent 记忆的工程地位
+| 知识线                       | 工具线                          |
+| --------------------------- | ------------------------------ |
+| 语言模型演进（N-gram → Transformer） | Spec-driven：用 Speckit 描述微调任务 |
+| 三种预训练架构（BERT/GPT/T5）     | CodeBuddy 生成训练代码             |
+| Hugging Face 微调实战          | Inline Edit 调整超参数             |
+| LoRA 参数高效微调               | Rules 定义项目规范 + 斜杠指令调试       |
 
 ---
 
-### Slide 3｜承上启下：从第4讲到第5讲
+### Slide 3｜从第3讲到第4讲：从调用者到理解者
 
-```
-第3讲 NLP 基础与 Prompt 工程   →  会调 OpenAI 兼容 API
-第4讲 NLP 进阶与模型微调        →  能白盒定制 BERT
-第5讲 大模型部署与 RAG（本讲）  →  让模型"用得上、答得准"
-第6讲 Agent 系统开发            →  让模型"思考+行动"
-```
+| 第3讲：NLP 基础与 Prompt 工程 | 第4讲：NLP 进阶与模型微调       |
+| ----------------------- | ----------------------- |
+| 调用大模型 API              | 理解模型内部架构                |
+| 设计 Prompt 让模型回答更好       | 用自己的数据让模型表现更好           |
+| 把模型当黑盒                  | 打开黑盒，看 Q/K/V 怎么流动        |
+| 工具：Prompt、Few-shot、CoT  | 工具：Transformers、PEFT、Trainer |
 
-**本讲解决两个问题**：
-1. 模型训练好了，怎么变成一个**可调用的服务**？（部署）
-2. 模型知识过期、会幻觉，怎么让它**基于真实文档回答**？（RAG）
+**核心问题驱动**：「我们已经能调用大模型了，但模型内部是什么？能否让它在我们的数据上表现更好？」
 
 ---
 
-## Part 0：本讲路线图（5min）
-
-### Slide 4｜为什么需要部署和检索？
-
-**问题一：模型在哪跑？**
-- 训练好的模型权重是几个 GB 的文件，怎么变成 HTTP API？
-- 云端 API 贵且数据出域 → 需要本地部署
-- 手机/边缘设备算力有限 → 需要量化
-
-**问题二：模型答得准吗？**
-- 模型训练数据有截止日期（GPT-4 截止 2023 年）
-- 问"2024 年中国商业航天发射次数"→ 模型不知道或幻觉乱答
-- 把航天产业报告喂给模型 → 让它基于报告回答
-
----
-
-### Slide 5｜本讲路线图
+### Slide 4｜本讲知识地图
 
 ```
-Part 1 部署（18min）              Part 2-3 RAG（52min）
-┌──────────────────┐              ┌──────────────────────┐
-│ 部署全景 + 选型  │              │ Part 2 RAG 基础       │
-│ 量化原理         │     →        │ Part 3 流水线从零实现  │
-│ vLLM 深入        │              └──────────────────────┘
-└──────────────────┘                        ↓
-                                  Part 4 高级+记忆（12min）
-                                  ┌──────────────────────┐
-                                  │ MQE/HyDE 原理        │
-                                  │ 记忆系统概览 → 第6讲 │
-                                  └──────────────────────┘
+语言模型演进
+   └─ N-gram → RNN/LSTM → Transformer
+                              │
+                   ┌──────────┼──────────┐
+                   │          │          │
+                BERT        GPT        T5
+              (Encoder)  (Decoder)  (Enc-Dec)
+              双向理解      自回归生成   文本到文本
+                   │
+          ┌────────┴────────┐
+          │                 │
+       全参数微调           LoRA 微调
+       (更新所有参数)      (只训练少量参数)
+          │                 │
+       Hugging Face        peft 库
+       Transformers
 ```
 
 ---
 
-## Part 1：大模型部署（18min）
+### Slide 5｜语言模型的核心任务
 
-### Slide 6｜部署全景：从权重到服务
+**语言模型 (Language Model, LM)**：计算一个词序列出现的概率
 
-**为什么要部署？**
-- 模型权重（.safetensors / .gguf）是文件，不能直接被业务系统调用
-- 需要一个**推理服务**把权重加载进显存，对外暴露 HTTP API
+$$P(S) = P(w_1) \cdot P(w_2|w_1) \cdot P(w_3|w_1,w_2) \cdots P(w_m|w_1,\dots,w_{m-1})$$
 
-**部署 = 推理服务**（不是训练）：
+**演进脉络**：
 
-```
-模型权重文件 ──┐
-              ├──→ 推理引擎 ──→ HTTP API ──→ 业务系统调用
-配置文件     ──┘     (加载到显存)    (OpenAI 兼容)
-```
-
-> 本讲聚焦"把模型跑起来并暴露 API"，不涉及训练/微调（第4讲已讲）
+| 阶段          | 代表方法              | 核心思想                | 局限            |
+| ----------- | ----------------- | ------------------- | ------------- |
+| 统计语言模型      | N-gram            | 马尔可夫假设，看前 n-1 个词     | 稀疏性 + 泛化差     |
+| 神经网络语言模型    | Word2Vec / NNLM   | 词嵌入，连续向量表示           | 固定窗口          |
+| 循环神经网络      | RNN / LSTM        | 引入"记忆"，处理变长序列        | 无法并行 + 长距依赖弱  |
+| **Transformer** | **Attention**     | **完全并行，全局注意力**       | **计算量随长度平方增长** |
 
 ---
 
-### Slide 7｜主流部署方案对比
+### Slide 6｜N-gram 的两大致命缺陷
 
-| 方案 | 定位 | 硬件 | 优势 | 场景 |
-|---|---|---|---|---|
-| **Ollama** | 一键式 | 4GB+显存/CPU | 零配置、模型库丰富 | 个人/原型/教学 |
-| **vLLM** | 高性能 | NVIDIA GPU | PagedAttention、高并发 | 生产/企业 |
-| **llama.cpp** | 极致轻量 | CPU/低配GPU | 纯CPU流畅、GGUF量化 | 嵌入式/边缘 |
-| **TGI** | HF 官方 | 多 GPU | 工程化、容器友好 | 企业 HF 生态 |
-| **LM Studio** | GUI 可视化 | 6GB+显存 | 零命令行 | 普通用户 |
+**缺陷一：数据稀疏性 (Sparsity)**
 
-> 本讲概念讲 Ollama + 深入讲 vLLM；Ollama 实操命令见 notebook 自学
-
----
-
-### Slide 8｜Ollama：本地一键起服务（概念页）
-
-**Ollama 三大特点**：
-- 一行命令拉模型（自动选量化版）：`ollama pull qwen2.5:7b-instruct-q4_K_M`
-- 自动暴露 OpenAI 兼容 API：`/v1/chat/completions`
-- CPU/GPU 自动切换（没 GPU 也能跑）
-
-**调用方式**（关键：只改 `base_url`，第3讲学的 openai 库调用方式完全适用）：
+如果 "robot learns" 在语料库中从未出现过，N-gram 计算出的概率就是 0：
 
 ```python
-from openai import OpenAI
-client = OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama"  # 本地服务，任意字符串即可
+# Bigram 示例
+P(learns|robot) = Count("robot learns") / Count("robot")
+                = 0 / 1 = 0   # 完全没见过 → 概率为 0
+```
+
+**缺陷二：泛化能力差**
+
+模型不理解 `agent` 和 `robot` 在语义上相似——它把每个词当作孤立的离散符号。
+
+**根本原因**：词被表示为离散的 one-hot 向量，无法捕捉语义相似性。
+
+---
+
+### Slide 7｜词嵌入：从离散符号到连续语义空间
+
+**核心思想**：把每个词映射为高维连续向量（词嵌入 Word Embedding）
+
+```python
+# 经典语义类比：King - Man + Woman ≈ Queen
+import numpy as np
+
+embeddings = {
+    "king":   np.array([0.9, 0.8]),
+    "queen":  np.array([0.9, 0.2]),
+    "man":    np.array([0.7, 0.9]),
+    "woman":  np.array([0.7, 0.3])
+}
+
+result = embeddings["king"] - embeddings["man"] + embeddings["woman"]
+# result = [0.9, 0.2] → 与 queen 完全一致
+```
+
+**余弦相似度**衡量语义接近程度：
+
+$$\text{similarity}(\vec{a}, \vec{b}) = \cos(\theta) = \frac{\vec{a} \cdot \vec{b}}{|\vec{a}||\vec{b}|}$$
+
+语义相近的词 → 向量夹角小 → 余弦值接近 1。
+
+---
+
+### Slide 8｜RNN/LSTM：引入"记忆"但无法并行
+
+**RNN 核心思想**：用隐藏状态 $h_t$ 作为"短期记忆"，结合当前输入 $x_t$ 和上一刻记忆 $h_{t-1}$ 生成新记忆：
+
+$$h_t = f(h_{t-1}, x_t)$$
+
+**LSTM 创新**：引入细胞状态 + 门控机制（遗忘门/输入门/输出门），缓解梯度消失。
+
+**致命瓶颈**：必须按顺序计算，第 t 步等第 t-1 步完成才能开始 → **无法并行**，训练慢。
+
+```
+RNN 时序：[x1] → [x2] → [x3] → ... → [xm]   串行
+Transformer: [x1, x2, x3, ..., xm] 一次性全部处理   并行
+```
+
+---
+
+### Slide 9｜Transformer 的革命（2017）
+
+**论文**：Vaswani et al. "Attention Is All You Need" (2017)
+
+**革命性主张**：完全抛弃循环结构，**只用注意力机制**捕捉序列内的依赖关系。
+
+| 对比项         | RNN/LSTM        | Transformer        |
+| ----------- | --------------- | ------------------ |
+| 计算方式        | 顺序计算            | 并行计算               |
+| 长距离依赖       | 弱（梯度消失）         | 强（一步直达）            |
+| 训练速度        | 慢               | 快（GPU 友好）          |
+| 复杂度（序列长度）   | O(n)            | O(n²)              |
+
+**代价**：序列长度增加时，注意力复杂度是平方级 O(n²)——这是后续 Longformer、Linformer 等改进的动机。
+
+---
+
+### Slide 10｜Encoder-Decoder 整体结构
+
+**最初的 Transformer 为机器翻译设计**：
+
+```
+输入句子 → [Encoder × N] → 上下文向量 → [Decoder × N] → 输出句子
+            "理解"                       "生成"
+```
+
+| 组件                | 职责                       | 类比         |
+| ----------------- | ------------------------ | ---------- |
+| **编码器 (Encoder)** | 读取整个输入句子，为每个词生成富含上下文的向量 | "通读全文做笔记"  |
+| **解码器 (Decoder)** | 参考已生成的前文 + 编码器的笔记，生成下一个词 | "看着笔记写作文"  |
+
+每个 Encoder/Decoder 层内部都包含：多头注意力 + 前馈网络 + 残差连接 + 层归一化。
+
+---
+
+### Slide 11｜自注意力机制：直觉理解
+
+**场景**：阅读句子 "The agent learns because **it** is intelligent."
+
+读到 "**it**" 时，大脑会自动将注意力放在 "agent" 上——自注意力就是对这种过程的数学建模。
+
+**三个核心角色**（每个词元都有）：
+
+| 角色              | 含义              | 类比         |
+| --------------- | --------------- | ---------- |
+| **Query (Q)**   | 当前词想找什么信息       | "你的问题"     |
+| **Key (K)**     | 这个词能提供什么索引      | "书名标签"     |
+| **Value (V)**   | 这个词实际携带的内容      | "书的内容"     |
+
+Q、K、V 都由输入向量乘以可学习的权重矩阵 $W^Q, W^K, W^V$ 得到。
+
+---
+
+### Slide 12｜自注意力机制：四步计算
+
+**Step 1**：计算相关性得分 $QK^T$（每个词对其他所有词的关注度）
+
+**Step 2**：缩放 $\div \sqrt{d_k}$（防止点积过大导致梯度过小）
+
+**Step 3**：Softmax 归一化（分数转为和为 1 的权重）
+
+**Step 4**：加权求和（权重 × V）
+
+**最终公式**：
+
+$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V$$
+
+**为什么除以 $\sqrt{d_k}$？** 当 $d_k$ 较大时，点积结果方差大，Softmax 后会落到梯度极小的区域，缩放后让分布更平滑。
+
+---
+
+### Slide 13｜自注意力计算示例（3×3 手动推导）
+
+```python
+import numpy as np
+
+# 3 个词，每个词 4 维嵌入
+X = np.random.randn(3, 4)
+Q = K = V = X  # 简化：Q=K=V=X
+
+# Step 1: 相关性得分
+scores = Q @ K.T        # shape (3, 3)
+
+# Step 2: 缩放
+d_k = K.shape[-1]
+scaled_scores = scores / np.sqrt(d_k)
+
+# Step 3: Softmax
+def softmax(x):
+    x = x - x.max(axis=-1, keepdims=True)  # 数值稳定
+    exp_x = np.exp(x)
+    return exp_x / exp_x.sum(axis=-1, keepdims=True)
+
+weights = softmax(scaled_scores)   # 每行和为 1
+
+# Step 4: 加权求和
+output = weights @ V                # shape (3, 4)
+```
+
+**注意力权重矩阵可视化**（每行和为 1）：
+
+|       | 词1    | 词2    | 词3    |
+| ----- | ----- | ----- | ----- |
+| 词1    | 0.6   | 0.3   | 0.1   |
+| 词2    | 0.2   | 0.5   | 0.3   |
+| 词3    | 0.1   | 0.4   | 0.5   |
+
+---
+
+### Slide 14｜多头注意力：多角度并行关注
+
+**单头的局限**：只学会一种关联（如只关注主语）。
+
+**多头思想**：把 Q/K/V 在维度上切分成 h 份，每份独立做一次注意力，最后拼接：
+
+```
+原始 d_model = 768, num_heads = 12
+每个头维度 = 768 / 12 = 64
+12 个头各自从不同角度关注 → 拼接回 768 维 → 线性变换
+```
+
+| 类比         | 单头注意力             | 多头注意力                 |
+| ---------- | ----------------- | --------------------- |
+| 阅读         | 只关注"指代关系"         | 同时关注指代、时态、从属、修饰等     |
+| 专家         | 一个专家              | h 个专家从不同视角看           |
+
+**PyTorch 简化实现**：
+
+```python
+class MultiHeadAttention(nn.Module):
+    def __init__(self, d_model, num_heads):
+        super().__init__()
+        self.d_k = d_model // num_heads
+        self.W_q = nn.Linear(d_model, d_model)
+        self.W_k = nn.Linear(d_model, d_model)
+        self.W_v = nn.Linear(d_model, d_model)
+        self.W_o = nn.Linear(d_model, d_model)
+
+    def forward(self, Q, K, V):
+        # 切分多头 → 各自做缩放点积注意力 → 拼接 → 线性变换
+        ...
+```
+
+---
+
+### Slide 15｜前馈神经网络（FFN）
+
+**作用**：从注意力聚合后的信息中提取更高阶特征，**逐位置**独立处理。
+
+**结构**：两个线性变换 + ReLU 激活，"先扩大再缩小"：
+
+$$\text{FFN}(x) = \max(0, xW_1 + b_1)W_2 + b_2$$
+
+```python
+class PositionWiseFeedForward(nn.Module):
+    def __init__(self, d_model, d_ff, dropout=0.1):
+        super().__init__()
+        self.linear1 = nn.Linear(d_model, d_ff)   # 扩大：768 → 3072
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(d_ff, d_model)   # 缩小：3072 → 768
+
+    def forward(self, x):
+        return self.linear2(self.dropout(self.relu(self.linear1(x))))
+```
+
+**关键**：所有位置共享同一组权重，但独立处理——这就是"逐位置"的含义。
+
+---
+
+### Slide 16｜残差连接与层归一化（Add & Norm）
+
+**每个子层都被 Add & Norm 包裹**：
+
+$$\text{Output} = \text{LayerNorm}(x + \text{Sublayer}(x))$$
+
+| 操作              | 解决的问题           | 原理                          |
+| --------------- | --------------- | --------------------------- |
+| **残差连接 (Add)**  | 深层网络梯度消失        | 梯度可绕过子层直接传播，x + Sublayer(x) |
+| **层归一化 (Norm)** | 内部协变量偏移         | 对单个样本所有特征归一化到均值 0、方差 1      |
+
+```python
+# Encoder 层中的 Add & Norm
+attn_output = self.self_attn(x, x, x, mask)
+x = self.norm1(x + self.dropout(attn_output))   # Add & Norm
+
+ff_output = self.feed_forward(x)
+x = self.norm2(x + self.dropout(ff_output))     # Add & Norm
+```
+
+---
+
+### Slide 17｜位置编码：让注意力知道顺序
+
+**问题**：自注意力本身**不包含位置信息**——"agent learns" 和 "learns agent" 对它是等价的。
+
+**解决**：为每个位置加一个固定的位置向量（正弦/余弦函数生成）：
+
+$$PE_{(pos, 2i)} = \sin\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right), \quad PE_{(pos, 2i+1)} = \cos\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
+
+```python
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(max_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)   # 偶数维 sin
+        pe[:, 1::2] = torch.cos(position * div_term)   # 奇数维 cos
+        self.register_buffer('pe', pe.unsqueeze(0))
+
+    def forward(self, x):
+        return self.dropout(x + self.pe[:, :x.size(1)])  # 加到词嵌入上
+```
+
+**特点**：不学习，直接用公式计算；不同位置的编码唯一；相对位置可由线性组合表达。
+
+---
+
+### Slide 18｜Transformer 信息流动全景
+
+```
+输入嵌入 + 位置编码
+       │
+   ┌───┴───┐
+   │ Multi-Head Attention │  ← 多角度关注全局
+   └───┬───┘
+       │ Add & Norm
+   ┌───┴───┐
+   │ Feed-Forward Network │  ← 逐位置特征提取
+   └───┬───┘
+       │ Add & Norm
+       
+   下一层 Encoder（× N）
+```
+
+**Vibe Coding 衔接**：让 CodeBuddy 解读 `MultiHeadAttention` 源码，逐行解释 Q/K/V 切分、缩放点积、掩码、拼接的过程，比自己读源码快 3 倍。
+
+---
+
+### Slide 19｜三种预训练架构总览
+
+| 架构                | 代表模型     | 注意力方向 | 训练目标        | 擅长任务           |
+| ----------------- | -------- | ----- | ----------- | -------------- |
+| **Encoder-Only**  | BERT     | 双向    | MLM（遮盖预测）   | 理解类：分类、NER、问答  |
+| **Decoder-Only**  | GPT      | 单向（因果） | CLM（预测下一个）  | 生成类：对话、写作、代码   |
+| **Encoder-Decoder** | T5 / BART | 编码双向 + 解码因果 | Seq2Seq     | 翻译、摘要、文本到文本    |
+
+```
+BERT:    [我] [爱] [北] [京]      全部双向看到
+GPT:     [我] → [爱] → [北] → [京]  只能看前文
+T5:      Encoder 理解输入 → Decoder 生成输出
+```
+
+---
+
+### Slide 20｜BERT：双向理解之王
+
+**BERT (Bidirectional Encoder Representations from Transformers)**
+
+**核心创新**：Masked Language Model (MLM)
+
+```
+原始句子：我爱北京天安门
+遮盖后：  我 [MASK] 北京 [MASK] 门
+任务：    预测 [MASK] = "爱" 和 "天安"
+```
+
+**为什么 MLM 比CLM 更适合理解类任务？**
+
+| 训练目标 | 看到的上下文     | 适合任务     |
+| ------ | ---------- | -------- |
+| MLM    | 前后文都看到     | 分类、NER、问答 |
+| CLM    | 只看前文       | 生成、对话    |
+
+**BERT 微调下游任务**：在 [CLS] 位置的输出向量后接一个线性分类层即可。
+
+---
+
+### Slide 21｜GPT：自回归生成之王
+
+**GPT (Generative Pre-trained Transformer)**
+
+**核心思想**：语言的本质就是**预测下一个词**——抛弃编码器，只用解码器。
+
+**Causal Language Model (CLM)**：
+
+```
+输入：[Datawhale Agent is]
+预测：[a]           ← 只看 "Datawhale Agent is"
+输入：[Datawhale Agent is a]
+预测：[powerful]    ← 只看 "Datawhale Agent is a"
+```
+
+**掩码自注意力 (Masked Self-Attention)**：训练时一次输入完整序列，但用三角掩码阻止位置 t 看到位置 >t 的内容：
+
+```
+掩码矩阵（下三角）：
+[1 0 0 0]
+[1 1 0 0]
+[1 1 1 0]
+[1 1 1 1]
+```
+
+GPT 系列从 GPT-1 到 GPT-4，参数量从 1.17 亿增长到万亿级，但架构核心不变。
+
+---
+
+### Slide 22｜T5：统一的文本到文本框架
+
+**T5 (Text-to-Text Transfer Transformer)**：把所有 NLP 任务统一为"输入文本 → 输出文本"。
+
+| 任务     | 输入                          | 输出              |
+| ------ | --------------------------- | --------------- |
+| 翻译     | `translate English to French: The house is wonderful.` | `La maison est magnifique.` |
+| 摘要     | `summarize: [文章内容]`          | `[摘要]`          |
+| 分类     | `classify: [文本]`             | `positive`      |
+| 问答     | `question: ... context: ...` | `[答案]`          |
+
+**优势**：一个模型、一套训练方式处理所有任务。
+**劣势**：参数量大、推理慢于专用架构。
+
+---
+
+### Slide 23｜如何选择预训练模型？
+
+**任务-架构对应表**：
+
+| 你的任务                | 推荐架构          | 推荐模型（中文）                       |
+| ------------------- | ------------- | ------------------------------ |
+| 文本分类（情感、意图）         | Encoder-Only  | bert-base-chinese / macbert    |
+| 命名实体识别 (NER)        | Encoder-Only  | bert-base-chinese              |
+| 问答（抽取式）             | Encoder-Only  | bert-base-chinese              |
+| 文本生成（对话、续写）         | Decoder-Only  | Qwen / ChatGLM / GPT           |
+| 翻译、摘要               | Encoder-Decoder | T5 / mT5 / BART                |
+| 通用嵌入（语义检索）          | Encoder-Only  | bge / text2vec / sentence-bert |
+
+**工程经验**：理解类任务首选 BERT 系列；生成类任务首选 GPT 系列；不要用 BERT 做生成，不要用 GPT 做分类。
+
+---
+
+### Slide 24｜预训练：在海量数据上学习"语言能力"
+
+**预训练 (Pre-training)**：在大量无标注文本上自监督学习。
+
+| 模型       | 预训练数据                            | 数据规模              |
+| -------- | -------------------------------- | ----------------- |
+| BERT     | BookCorpus + English Wikipedia   | 3.3B tokens        |
+| GPT-3    | CommonCrawl + WebText2 + Books   | 570GB 文本           |
+| bert-base-chinese | 中文维基百科 + 新闻 + 百科                 | 约 100MB 中文文本       |
+
+**类比**：预训练 = "大学通识教育"，让模型掌握通用语言能力；微调 = "岗前专业培训"，针对具体任务调整。
+
+**为什么不需要从头训练？**
+
+| 方式       | 算力            | 数据              | 时间              |
+| -------- | ------------- | --------------- | --------------- |
+| 从零训练 BERT | 64 个 TPU × 4 天 | 3.3B tokens 标注  | 约 100 万美元        |
+| 微调 BERT  | 1 个 GPU × 1 小时 | 几千条标注数据         | 几乎免费             |
+
+迁移学习的价值：站在巨人肩膀上，用极少资源完成定制任务。
+
+---
+
+### Slide 25｜MLM vs CLM：两种预训练目标对比
+
+**MLM（BERT 用）**：随机遮盖 15% 的 token，预测被遮盖的词
+
+```
+输入：我 [MASK] 北京 [MASK] 安 [MASK]
+目标：预测 [MASK] = "爱", "天", "门"
+```
+
+**CLM（GPT 用）**：逐词预测下一个词
+
+```
+输入：我 爱 北
+目标：预测下一个词 = "京"
+```
+
+| 训练目标 | 上下文        | 适合下游任务   | 代表模型   |
+| ------ | ---------- | -------- | ------ |
+| MLM    | 双向（前后都看）   | 理解类      | BERT   |
+| CLM    | 单向（只看前文）   | 生成类      | GPT    |
+
+**思考题预告**：为什么 BERT 选 MLM 而不是 CLM？（详见实验报告思考题 a）
+
+---
+
+### Slide 26｜微调范式：预训练 + 微调两阶段
+
+**两阶段流程**：
+
+```
+阶段一：预训练（一次性，昂贵）
+   海量无标注语料 → 自监督学习 → 预训练模型（通用语言能力）
+
+阶段二：微调（每个任务一次，便宜）
+   少量带标注数据 → 监督学习 → 任务专用模型（特定任务能力）
+```
+
+**BERT 微调文本分类的完整流程**：
+
+```
+1. 加载预训练 BERT
+2. 在 [CLS] 输出后接线性分类头（输出 2 维 logits）
+3. 用带标签数据训练（交叉熵损失 + AdamW 优化器）
+4. 评估：Accuracy / F1
+```
+
+**与 sklearn 的对比**：
+
+| 对比项         | sklearn `model.fit()`     | BERT 微调                     |
+| ----------- | ------------------------ | --------------------------- |
+| 训练方式        | 闭式解 / 梯度下降               | 反向传播 + 优化器                  |
+| 数据预处理       | 数值化即可                    | Tokenization（input_ids 等）   |
+| 调用接口        | `model.fit(X, y)`        | `outputs = model(**inputs)` |
+| 学习率         | 默认即可                     | 必须很小（2e-5）                  |
+
+---
+
+### Slide 27｜Hugging Face 生态导览
+
+**一站式 NLP 工具链**：
+
+| 库                  | 作用                       |
+| ------------------ | ------------------------ |
+| `transformers`     | 加载/使用预训练模型、Tokenizer      |
+| `datasets`         | 加载/处理数据集                 |
+| `tokenizers`       | 高性能 Tokenizer（Rust 实现）   |
+| `peft`             | 参数高效微调（LoRA 等）           |
+| `accelerate`       | 多 GPU / 混合精度训练加速         |
+| `Model Hub`        | 数万个预训练模型的中央仓库            |
+
+**核心 API 速览**：
+
+```python
+from transformers import (
+    AutoTokenizer,                        # 通用 Tokenizer 加载
+    AutoModel,                            # 通用模型加载（输出隐藏状态）
+    AutoModelForSequenceClassification,   # 文本分类模型（带分类头）
+    BertTokenizer,                        # BERT 专用 Tokenizer
+    BertForSequenceClassification,        # BERT 分类模型
+    pipeline                              # 一行代码完成任务
 )
-response = client.chat.completions.create(
-    model="qwen2.5:7b-instruct-q4_K_M",
-    messages=[{"role": "user", "content": "你好"}],
+```
+
+`Auto*` 系列根据模型名自动选择对应类，推荐使用。
+
+---
+
+### Slide 28｜pipeline：一行代码体验预训练模型
+
+```python
+from transformers import pipeline
+
+# 情感分析（默认英文模型）
+classifier = pipeline("sentiment-analysis")
+classifier("I love this hotel!")
+# [{'label': 'POSITIVE', 'score': 0.9998}]
+
+# 中文情感分析（指定中文模型）
+classifier = pipeline("sentiment-analysis", model="bert-base-chinese")
+classifier("这家酒店服务很好，房间干净。")
+# [{'label': 'LABEL_1', 'score': 0.99}]  # 1=正面
+
+# 命名实体识别
+ner = pipeline("ner")
+ner("张三在北京大学读书")
+# [{'entity': 'PER', 'word': '张三'}, {'entity': 'ORG', 'word': '北京大学'}]
+
+# 问答
+qa = pipeline("question-answering")
+qa(question="BERT 是什么？", context="BERT 是一个预训练语言模型...")
+```
+
+**适用场景**：快速原型验证、不要求定制时的开箱即用。
+
+---
+
+### Slide 29｜Tokenizer 深入：从文本到模型输入
+
+**Tokenizer 的作用**：把文本转换为模型能处理的数字 ID 序列。
+
+```python
+from transformers import BertTokenizer
+
+tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
+encoding = tokenizer(
+    "酒店位置很好，服务态度也不错。",
+    padding="max_length",      # 填充到最大长度
+    truncation=True,           # 超长截断
+    max_length=32,             # 最大长度
+    return_tensors="pt"        # 返回 PyTorch 张量
+)
+
+print(encoding.keys())
+# dict_keys(['input_ids', 'token_type_ids', 'attention_mask'])
+```
+
+| 输出字段                | 含义                  | 形状             |
+| ------------------- | ------------------- | -------------- |
+| `input_ids`         | 词元对应的 ID 序列         | (1, 32)        |
+| `attention_mask`    | 1=真实 token，0=padding | (1, 32)        |
+| `token_type_ids`    | 句对任务中区分上下句          | (1, 32)        |
+
+```
+原文：    酒店位置很好
+input_ids: [101, 6983, 2421, ..., 0, 0]   # 101=[CLS], 102=[SEP], 0=padding
+attention_mask: [1, 1, 1, ..., 0, 0]      # 1=关注，0=忽略
+```
+
+---
+
+### Slide 39｜Vibe Coding 融合②：Inline Edit 调参
+
+**场景**：训练 Loss 不降，需要调超参数。
+
+**旧方式**：手动改代码 → 运行 → 再改 → 再运行...
+
+**Inline Edit 方式**：
+
+1. 选中 `lr=2e-5` → `Cmd+K`
+2. 输入："把学习率改成 5e-5，并加 warmup（前 10% 步数线性升温）"
+3. 查看 Diff → Accept
+
+```python
+# 修改前
+optimizer = AdamW(model.parameters(), lr=2e-5)
+
+# 修改后（CodeBuddy 生成）
+from transformers import get_linear_schedule_with_warmup
+optimizer = AdamW(model.parameters(), lr=5e-5)
+total_steps = len(train_loader) * 3
+scheduler = get_linear_schedule_with_warmup(
+    optimizer, num_warmup_steps=total_steps // 10,
+    num_training_steps=total_steps
 )
 ```
 
-> 安装、pull、serve 的完整命令流见 `课程代码案例.ipynb` Part 1
+**斜杠指令调试**：
+- `/fix` —— 训练报错时一键定位问题
+- `/explain` —— 选中 `BertForSequenceClassification` 源码，逐行解释
 
 ---
 
-### Slide 9｜Vibe Coding 工具：Spec-driven 部署规约
+### Slide 40｜全参数微调的代价
 
-**deploy_speckit.md**（轻量 Speckit）：
+**BERT-base 的参数规模**：
 
-```markdown
-# 部署规约
+| 组件              | 参数量         |
+| --------------- | ----------- |
+| Embedding 层     | 23M         |
+| 12 层 Transformer | 85M         |
+| 分类头             | 1.5K        |
+| **总计**          | **约 1.1 亿** |
 
-## Constitution（硬约束）
-- 端口：11434
-- 模型：qwen2.5:7b-instruct-q4_K_M
-- 上下文长度：32768
-- 必须 OpenAI 兼容
-- 必须支持流式输出
+**全参数微调的问题**：
 
-## Context（环境）
-- 部署环境：CloudStudio / 本地 macOS
-- GPU：可选（无 GPU 退化到 CPU 模式）
-```
+| 痛点          | 说明                          |
+| ----------- | --------------------------- |
+| 显存占用大       | 模型参数 + 梯度 + 优化器状态 ≈ 4 倍参数量  |
+| 存储成本高       | 每个任务一份完整模型副本                |
+| 部署困难        | 多任务需要多个大模型                  |
+| 容易过拟合       | 参数多、数据少时易记忆训练集              |
 
-**用法**：每次与 AI 对话部署问题时 `@deploy_speckit.md`，AI 全程遵守约束
-
-> 对比"每轮重复说端口和模型" vs "Speckit 一次锁定"
-
----
-
-### Slide 10｜量化原理：为什么要量化？
-
-**问题**：7B 模型 FP16 需要多少显存？
-
-```
-7B 参数 × 2 字节（FP16） = 14 GB
-```
-
-消费级显卡（RTX 3060 = 12GB）跑不动！
-
-**量化 = 降低参数精度，换取显存和速度**
-
-| 精度 | 每参数字节 | 7B 显存 | 精度损失 |
-|---|---|---|---|
-| FP16 | 2 | 14 GB | 基准 |
-| INT8 | 1 | 7 GB | < 1% |
-| INT4 | 0.5 | **4 GB** | < 3% |
-
-> INT4 后 7B 模型 4GB 显存可跑，RTX 3060 也能用；MMLU 损失 < 3%
+**核心矛盾**：模型大才能学好，但大模型微调代价高——LoRA 等参数高效微调方法应运而生。
 
 ---
 
-### Slide 11｜GGUF 量化格式：Q4_K_M 是什么？
+### Slide 41｜PEFT 思想：冻结主干，只调少量参数
 
-**GGUF**：llama.cpp/Ollama 使用的量化文件格式
+**PEFT (Parameter-Efficient Fine-Tuning)**：冻结大部分预训练参数，只训练少量新增参数。
 
-**K-Quants 量化级别**（不是简单均匀量化）：
+| 方法              | 核心思想                  | 参数量        |
+| --------------- | --------------------- | ---------- |
+| **LoRA**        | 权重更新 ΔW = AB（低秩分解）    | 0.1%-1%    |
+| Prefix Tuning   | 在每层注意力前加可学习的前缀 token  | 1%-5%      |
+| P-Tuning v2     | 类似 Prefix，但更深         | 1%-5%      |
+| Adapter         | 在每层插入小型瓶颈网络           | 1%-5%      |
+| Prompt Tuning   | 只优化输入端的连续 prompt       | <1%        |
 
-| 格式 | 显存 | 精度 | 说明 |
-|---|---|---|---|
-| Q4_0 | 最小 | 较低 | 最简单的 4-bit |
-| **Q4_K_M** | 小 | **好** | 推荐：重要层用更高精度 |
-| Q5_K_M | 中 | 更好 | 5-bit，平衡型 |
-| Q8_0 | 较大 | 很好 | 8-bit，接近 FP16 |
+**类比**：全参数微调 = 重写整本课本；PEFT = 在课本上加书签和批注，原书不动。
 
-**K-Quants 思想**：不是所有层都用同样精度——注意力层等重要层保留更高精度，FFN 层用低精度
-
-> 选型经验：教学/原型用 Q4_K_M，生产高精度场景用 Q5_K_M 或 Q8_0
-
----
-
-### Slide 12｜量化方法：PTQ vs QAT
-
-| 方法 | 全称 | 原理 | 成本 | 精度 |
-|---|---|---|---|---|
-| **PTQ** | 训练后量化 | 模型训练完直接量化 | 低（分钟级） | 略降 |
-| **QAT** | 量化感知训练 | 训练时就模拟量化 | 高（需重新训练） | 更好 |
-
-**实际工程**：90% 场景用 PTQ（足够好且快）；QAT 用于对精度要求极高的场景
-
-**显存计算公式**：
-
-```
-显存 ≈ 参数量 × 每参数字节数
-7B × INT4(0.5字节) = 3.5 GB
-7B × FP16(2字节)   = 14 GB
-```
+**为什么有效？** 预训练模型已经学到通用语言能力，下游任务只需要"轻微调整"，不需要大幅改变参数。
 
 ---
 
-### Slide 13｜vLLM 深入（一）：PagedAttention
+### Slide 42｜LoRA 核心原理：低秩分解
 
-**问题**：传统推理的 KV Cache 显存碎片严重
-- 每个请求预分配最大长度显存（如 2048 token）
-- 实际生成可能只用了 200 token → 90% 显存浪费
+**核心假设**：微调时的权重更新 ΔW 是低秩的，可以分解为两个小矩阵的乘积：
 
-**PagedAttention 思想**（类比 OS 虚拟内存）：
+$$W_{\text{new}} = W_{\text{pretrained}} + \Delta W = W_{\text{pretrained}} + AB$$
+
+其中：
+- $W$：原始权重矩阵，shape `(d, d)`，**冻结不动**
+- $A$：shape `(d, r)`，可训练
+- $B$：shape `(r, d)`，可训练
+- $r$：低秩维度，通常 4-64，远小于 $d$
 
 ```
-传统：连续分配              PagedAttention：分页分配
-┌──────────────┐            ┌──┬──┬──┬──┬──┬──┐
-│  请求1       │            │P1│P2│P1│P3│P2│P1│  按需分配
-│  (2048 tok) │            └──┴──┴──┴──┴──┴──┘  消除碎片
-└──────────────┘
+原始：d × d = 768 × 768 = 589,824 参数
+LoRA：d × r + r × d = 768 × 8 + 8 × 768 = 12,288 参数（r=8）
+参数量降到原来的 2%！
 ```
 
-- KV Cache 像"内存页"，按需分配/回收
-- 显存利用率从 ~30% 提升到 ~95%
-- 同样显存能跑更多并发请求
+**与 PCA 的相似之处**：
+
+| 对比项         | PCA                      | LoRA                      |
+| ----------- | ------------------------ | ------------------------- |
+| 目标          | 用低维空间近似高维数据              | 用低秩矩阵近似权重更新               |
+| 假设          | 数据本征维度低                  | 微调变化本征维度低                 |
+| 输出          | 主成分矩阵                    | A、B 两个小矩阵                 |
 
 ---
 
-### Slide 14｜vLLM 深入（二）：连续批处理
+### Slide 43｜LoRA 代码实战
 
-**传统静态批处理**：等齐一批再一起推理，长请求拖慢短请求
+```python
+from peft import LoraConfig, get_peft_model, TaskType
 
+# 加载预训练模型（同任务2）
+model = BertForSequenceClassification.from_pretrained(
+    "bert-base-chinese", num_labels=2)
+
+# 配置 LoRA
+lora_config = LoraConfig(
+    task_type=TaskType.SEQ_CLS,        # 序列分类任务
+    r=8,                                # 低秩维度
+    lora_alpha=32,                      # 缩放系数（实际缩放 = alpha/r）
+    lora_dropout=0.1,                   # LoRA 层的 dropout
+    target_modules=["query", "value"]   # 对注意力的 Q 和 V 矩阵加 LoRA
+)
+
+# 用 LoRA 包装模型
+model = get_peft_model(model, lora_config)
+model.print_trainable_parameters()
+# trainable params: 294,912 || all params: 102,272,257 || trainable%: 0.29%
 ```
-请求1(短) ─┐
-请求2(长) ─┤── 等齐 ──→ 一起推理 ── 请求1 等请求2 完成
-请求3(短) ─┘
-```
 
-**连续批处理**（Continuous Batching）：动态拼批
+**关键观察**：可训练参数从 1.1 亿降到 29 万（0.29%），但效果接近全参数微调！
 
-```
-请求1 完成 → 立刻返回 → 位置空出 → 新请求填入
-请求2 继续推理 → 不阻塞其他请求
-```
-
-**效果**：吞吐量提升 2-10 倍，并发越高优势越大
+后续训练循环与任务2完全一样——PEFT 的优雅之处。
 
 ---
 
-### Slide 15｜vLLM vs Ollama 性能对比
+### Slide 44｜全参数 vs LoRA 对比
 
-**实测数据**（RTX 3090，Qwen3 8B，FP16）：
-
-| Batch Size | Ollama 响应(s) | vLLM 响应(s) | Ollama tok/s | vLLM tok/s |
-|---|---|---|---|---|
-| 1 | 5.68 | 5.44 | 45.1 | 47.1 |
-| 8 | 7.64 | 5.82 | 268.0 | 351.9 |
-| 16 | 15.6 | 6.42 | 262.9 | **638.4** |
+| 对比项                | 全参数微调        | LoRA 微调             |
+| ------------------ | ------------ | ------------------- |
+| 可训练参数量             | 1.1 亿 (100%) | 29 万 (0.29%)        |
+| 训练显存（batch=8）      | 约 4GB        | 约 1.5GB             |
+| 训练时间（3 epochs）     | 约 30 分钟      | 约 25 分钟             |
+| 模型存储（每个任务）         | 400MB        | 1MB（只存 LoRA 权重）     |
+| 最终 F1（hotel.csv）   | 约 0.92       | 约 0.90              |
+| 多任务部署              | 每任务一份完整模型    | 共享主干 + 多个 LoRA 头    |
 
 **结论**：
-- 单请求（Batch=1）：两者接近
-- 高并发（Batch=16）：vLLM 吞吐是 Ollama 的 **2.4 倍**
-- vLLM 显存略高，但吞吐优势巨大
-
-> 数据来源：博客园《Ollama和vLLM大模型推理性能对比实测》
+- 数据量大、追求极致精度 → 全参数微调
+- 数据少、多任务、资源受限 → LoRA
+- 工程实践中 LoRA 已成为默认选择
 
 ---
 
-### Slide 16｜vLLM 部署命令
+### Slide 45｜本讲知识地图（完整版）
 
-```bash
-# 单 GPU 启动 Qwen2.5 7B
-vllm serve Qwen/Qwen2.5-7B-Instruct \
-    --port 8000 \
-    --tensor-parallel-size 1
-
-# 多 GPU（2 卡）
-vllm serve Qwen/Qwen2.5-7B-Instruct \
-    --tensor-parallel-size 2 \
-    --port 8000
-
-# API 调用（OpenAI 兼容）
-curl http://localhost:8000/v1/chat/completions \
-    -H "Content-Type: application/json" \
-    -d '{"model":"Qwen/Qwen2.5-7B-Instruct",
-         "messages":[{"role":"user","content":"你好"}]}'
+```
+N-gram → 神经网络语言模型 → RNN/LSTM → Transformer
+                                          │
+                              ┌───────────┼───────────┐
+                              │           │           │
+                            BERT         GPT         T5
+                          (理解)        (生成)      (转换)
+                              │
+                   ┌──────────┴──────────┐
+                   │                     │
+                全参数微调              LoRA 微调
+                (1.1亿参数)          (29万参数, 0.29%)
+                   │                     │
+              Transformers             peft 库
+              Trainer / 手写循环        get_peft_model
 ```
 
-> vLLM API 协议与 OpenAI 完全兼容，业务代码无需修改
+**重点掌握**：
+- [完成] 自注意力 Q/K/V 计算流程
+- [完成] BERT 的 MLM 预训练目标
+- [完成] Hugging Face 微调完整流程
+- [完成] LoRA 低秩分解原理
+
+**了解即可**：
+- Transformer 完整源码实现
+- T5 的文本到文本框架
+- 其他 PEFT 方法（Prefix、Adapter）
 
 ---
 
-### Slide 17｜部署选型决策树
+### Slide 46｜实验四说明 + 思考题
 
-```
-你的场景？
-├── 个人开发 / 原型 / 教学
-│   └── Ollama（一键起服务，CPU/GPU 自适应）
-├── 生产高并发 / 企业 API 服务
-│   └── vLLM（PagedAttention + 连续批处理）
-├── CPU only / 嵌入式 / 边缘设备
-│   └── llama.cpp（GGUF 量化，纯 CPU 流畅）
-├── HuggingFace 生态 / 容器化
-│   └── TGI（HF 官方，工程化好）
-└── 普通用户 / 不想敲命令
-    └── LM Studio（GUI 可视化）
-```
+**实验任务总览**：
 
-> 本讲实验用 Ollama；生产场景推荐 vLLM
+| 任务                | 内容                          | 分值     |
+| ----------------- | --------------------------- | ------ |
+| 任务1               | NumPy 手动实现自注意力              | 35     |
+| 任务2               | BERT 酒店评论情感分类微调             | 65     |
+| 任务3（选做）           | LoRA 微调对比全参数微调               | +30    |
 
----
+**思考题（三选一）**：
 
-## Part 2：RAG 基础与三段式（15min）
+a. 为什么 BERT 使用 MLM 而不是 CLM 进行预训练？MLM 和 CLM 分别适合哪类下游任务？
 
-### Slide 18｜RAG 定义：检索 + 增强 + 生成
+b. 微调 BERT 时学习率通常设为 2e-5，远小于从零训练的值。为什么？设置过大会发生什么？
 
-**RAG = Retrieval-Augmented Generation**
+c. LoRA 的核心思想是将 ΔW 分解为低秩矩阵 AB。为什么这个假设在微调场景下合理？它和 PCA 降维有什么相似之处？
 
-- **检索（Retrieve）**：从知识库查询相关内容
-- **增强（Enhance）**：把检索结果融入 Prompt，辅助模型生成
-- **生成（Generate）**：输出兼具准确性与透明度的答案
-
-```
-用户提问 → [检索知识库] → [拼进 Prompt] → [LLM 生成] → 带引用的回答
-```
-
-> 核心思想：生成前先查资料，让模型"开卷考试"
+**参考资料**：
+1. Hello-Agents 第三章：大语言模型基础（3.1 Transformer 架构）
+2. Devlin et al. (2019). "BERT: Pre-training of Deep Bidirectional Transformers"
+3. Vaswani et al. (2017). "Attention Is All You Need"
+4. Hu et al. (2022). "LoRA: Low-Rank Adaptation of Large Language Models"
+5. Hugging Face 文档：https://huggingface.co/docs/transformers
 
 ---
 
-### Slide 19｜三种问答方案对比
-
-| 方案 | 原理 | 优势 | 劣势 |
-|---|---|---|---|
-| **传统检索 QA** | 关键词匹配（TF-IDF/BM25） | 可靠、可溯源 | 死板、不理解语义 |
-| **纯 LLM** | 直接问模型 | 灵活、自然 | 幻觉、知识过期 |
-| **RAG** | 检索 + LLM 生成 | 准确、可溯源、灵活 | 系统复杂 |
-
-**演示**：问"2024 年中国商业航天发射次数"
-- 传统检索：找不到（文档写"商业发射"，查询是"商业航天发射"）
-- 纯 LLM：幻觉乱答（"约 50 次"——错，实际 30 次）
-- RAG：基于报告回答"30 次，同比增加 50%"[OK]
-
----
-
-### Slide 20｜RAG 完整工作流（两阶段）
-
-**数据准备阶段**（离线一次）：
-
-```
-文档(PDF/Word/...) → 分块 → 向量化 → 存入向量库
-```
-
-**查询应用阶段**（在线每次）：
-
-```
-用户提问 → 查询向量化 → 语义检索 top-k → 拼 Prompt → LLM 生成
-```
-
-```
-┌─────────────────────────────────────────────────┐
-│  离线：文档 → 分块 → 向量化 → 向量库              │
-│  在线：提问 → 向量化 → 检索 top-k → 拼 Prompt → 生成  │
-└─────────────────────────────────────────────────┘
-```
-
-> 关键：知识库建一次，查询每次跑
-
----
-
-### Slide 21｜RAG 三代演进
-
-| 代际 | 时间 | 检索方式 | 生成方式 | 痛点 |
-|---|---|---|---|---|
-| **Naive RAG** | 2020-2021 | TF-IDF/BM25 关键词 | 直接拼接 | 字面不匹配就漏 |
-| **Advanced RAG** | 2022-2023 | 稠密嵌入语义检索 | 查询重写 + 重排序 | 召回率仍不够 |
-| **Modular RAG** | 2023-至今 | 混合检索 + MQE + HyDE | CoT + 自我反思 | 模块组合复杂 |
-
-**演进逻辑**：每代解决上一代痛点
-- Naive → Advanced：从"字面匹配"到"语义理解"
-- Advanced → Modular：从"单次检索"到"多策略融合"
-
----
-
-### Slide 22｜RAG vs 微调对比
-
-| 维度 | RAG | 微调 |
-|---|---|---|
-| 适合场景 | 知识常更新 / 长尾 / 需引用 | 风格 / 格式 / 特定任务 |
-| 知识更新 | 改知识库即可（秒级） | 需重新训练（小时级） |
-| 显存需求 | 推理即可 | 训练需大显存 |
-| 可解释性 | 高（有引用） | 低（黑盒） |
-| 成本 | 低 | 高 |
-
-**选型建议**：
-- 知识常变 → RAG（如新闻、政策、企业文档）
-- 风格固定 → 微调（如客服话术、代码风格）
-- 两者结合 → 先 RAG 注入知识，再微调改风格
-
----
-
-## Part 3：RAG 流水线从零实现（37min · 核心）
-
-### Slide 24｜RAG 流水线六环节
-
-```
-1. 文档加载    PDF/Word/Excel → Markdown
-2. 文本分块    切成 500-1000 字符的小段
-3. 向量化      每段转成 384 维向量
-4. 向量库存储   存入 ChromaDB
-5. 语义检索    查询向量 → top-k 最相似段落
-6. Prompt 拼接  检索结果 + 问题 → LLM 生成
-```
-
-**本讲从零实现，不使用 LangChain/LlamaIndex 的 RAG 链**——每一步学生都能看懂、能改、能调试
-
----
-
-### Slide 25｜环节1：文档加载与清洗
-
-**工具**：`markitdown`（微软开源，统一文档转换）
-
-```python
-from markitdown import MarkItDown
-
-md = MarkItDown()
-result = md.convert("航天产业报告.pdf")
-markdown_text = result.text_content
-print(len(markdown_text), "字符")
-```
-
-**支持格式**：PDF / Word / Excel / PPT / 图片(OCR) / 音频(转录) / CSV / JSON / HTML
-
----
-
-### Slide 26｜环节2：为什么要分块？
-
-**原因1：嵌入模型输入长度限制**
-- `all-MiniLM-L6-v2` 最大输入 512 token
-- 一篇 2 万字报告远超限制
-
-**原因2：检索精度**
-- 整篇文档向量化 → 语义被稀释
-- 分块后每段聚焦一个主题，检索更准
-
-**原因3：Prompt 长度控制**
-- top-5 检索结果拼进 Prompt，每段 500 字 → 2500 字（可控）
-- 不分块直接塞整篇 → 超出上下文窗口
-
-```
-整篇文档(20000字) ──向量化──→ 1个向量（语义稀释）
-                ↓ 分块
-500字 × 40段 ──向量化──→ 40个向量（语义聚焦）
-```
-
----
-
-### Slide 27｜分块策略1：固定字符分块
-
-```python
-def chunk_fixed(text, chunk_size=500, overlap=50):
-    chunks = []
-    start = 0
-    while start < len(text):
-        end = start + chunk_size
-        chunks.append(text[start:end])
-        start = end - overlap  # 重叠窗口
-    return chunks
-```
-
-**优点**：简单
-**缺点**：可能切断语义（如把"2024年"切成"2024"和"年"）
-
-**重叠窗口（overlap）作用**：防止语义在边界断裂
-
-```
-块1: [...航天发射 30 次，同比]
-块2: [同比增加 50%...]
-         ↑ 重叠部分保证语义连续
-```
-
----
-
-### Slide 28｜分块策略2：递归字符分块（推荐）
-
-**思路**：按分隔符优先级递归切分，保持段落完整
-
-```python
-def chunk_recursive(text, chunk_size=500, overlap=50):
-    separators = ["\n\n", "\n", "。", "；", "，", " "]
-    # 先按段落分（\n\n），段落太大再按行分（\n），再按句号分...
-    ...
-```
-
-**分隔符优先级**：`\n\n`（段落）→ `\n`（行）→ `。`（句）→ `；`（分句）→ `，`（逗号）→ ` `（空格）
-
-**优点**：保持语义完整，不会切断句子
-**LangChain 的 `RecursiveCharacterTextSplitter` 就是这个思路**
-
----
-
-### Slide 29｜分块策略3：Token 分块
-
-**思路**：按 token 数切分，与嵌入模型对齐
-
-```python
-from transformers import AutoTokenizer
-
-tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
-
-def chunk_by_token(text, max_tokens=500, overlap=50):
-    tokens = tokenizer.encode(text)
-    chunks = []
-    for i in range(0, len(tokens), max_tokens - overlap):
-        chunk_tokens = tokens[i:i+max_tokens]
-        chunks.append(tokenizer.decode(chunk_tokens))
-    return chunks
-```
-
-**优点**：精确控制 token 数，不超嵌入模型限制
-**缺点**：需要 tokenizer，速度慢
-
----
-
-### Slide 30｜chunk_size 调参经验
-
-| 场景 | chunk_size | overlap | 说明 |
-|---|---|---|---|
-| **问答场景** | 500-800 字符 | 50-100 | 小块聚焦，检索准 |
-| **长文摘要** | 1000-1500 字符 | 100-200 | 大块保留上下文 |
-| **代码文档** | 按函数/类分 | 0 | 语义天然边界 |
-| **表格数据** | 按行分 | 0 | 保持行完整 |
-
-**经验法则**：
-- overlap = chunk_size × 10-20%
-- 宁可小块多检索，不要大块塞满 Prompt
-- 用 Inline Edit 快速改 chunk_size 对比检索效果
-
----
-
-### Slide 31｜环节3：向量化——句子嵌入
-
-**句子嵌入 vs 词嵌入**（第4讲已讲 token embedding）：
-- 词嵌入：每个词一个向量（如 "航天" → 768维）
-- 句子嵌入：整句话一个向量（如 "航天发射 30 次" → 384维）
-
-**句子嵌入原理**（sentence-transformers）：
-
-```
-输入句子 → BERT 编码 → 每个token一个向量 → mean pooling → 1个句子向量
-```
-
-**模型选型**：
-
-| 模型 | 维度 | 大小 | 语言 | 备注 |
-|---|---|---|---|---|
-| `all-MiniLM-L6-v2` | 384 | 80MB | 英文为主 | 教学/原型推荐 |
-| `bge-large-zh` | 1024 | 1.3GB | 中文优秀 | 中文场景推荐 |
-| `bge-m3` | 1024 | 2.3GB | 多语言 | 生产场景 |
-
----
-
-### Slide 32｜sentence-transformers 实操
-
-```python
-from sentence_transformers import SentenceTransformer
-
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
-# 单句编码
-vec = model.encode("航天发射 30 次")
-print(vec.shape)  # (384,)
-
-# 批量编码
-sentences = ["航天发射 30 次", "商业航天井喷", "卫星互联网组网"]
-vectors = model.encode(sentences)
-print(vectors.shape)  # (3, 384)
-
-# 计算相似度
-from sentence_transformers import util
-sim = util.cos_sim(
-    model.encode("法国出口", normalize_embeddings=True),
-    model.encode("法兰西出口", normalize_embeddings=True)
-)
-print(sim)  # 0.85+ 语义相似
-```
-
-> "法国"≈"法兰西"——这是 RAG 能命中同义词的关键
-
----
-
-### Slide 33｜环节4：ChromaDB 向量库
-
-**ChromaDB**：轻量级开源向量数据库，纯 Python，本地持久化
-
-**五要素**：
-
-| 概念 | 类比 SQL | 说明 |
-|---|---|---|
-| collection | 表 | 一个知识库一个 collection |
-| id | 主键 | 每个 chunk 的唯一 ID |
-| document | 行内容 | chunk 原文 |
-| embedding | 索引 | chunk 的向量 |
-| metadata | 列字段 | 来源、页码、章节等 |
-
-```python
-import chromadb
-
-client = chromadb.PersistentClient(path="./chroma_db")
-collection = client.create_collection("aerospace_report")
-
-collection.add(
-    ids=["chunk_0", "chunk_1"],
-    documents=["航天发射 30 次...", "商业航天井喷..."],
-    embeddings=[[0.1, ...], [0.2, ...]],
-    metadatas=[{"page": 1}, {"page": 1}]
-)
-```
-
----
-
-### Slide 34｜环节5：语义检索
-
-```python
-# 查询向量化
-query_vec = model.encode("2024 年商业航天发射多少次")
-
-# 检索 top-5
-results = collection.query(
-    query_embeddings=[query_vec],
-    n_results=5,
-    include=["documents", "metadatas", "distances"]
-)
-
-for i, (doc, meta, dist) in enumerate(zip(
-    results['documents'][0],
-    results['metadatas'][0],
-    results['distances'][0]
-)):
-    print(f"[{i+1}] dist={dist:.3f} page={meta['page']}")
-    print(doc[:100])
-```
-
-**相似度度量**：余弦相似度（默认）/ 欧氏距离
-**score_threshold**：过滤 distance > 1.0 的不相关结果
-
----
-
-### Slide 35｜环节6：Prompt 拼接与生成
-
-**Prompt 模板**：
-
-```python
-PROMPT_TEMPLATE = """你是文档问答助手，只根据以下参考资料回答问题。
-如果资料中没有答案，请说"资料中未提及"。
-
-参考资料：
-{context}
-
-问题：{question}
-
-回答（请用 [1][2] 标注引用来源）：
-"""
-
-def generate(question, retrieved_chunks):
-    context = "\n\n".join(
-        f"[{i+1}] {chunk}" for i, chunk in enumerate(retrieved_chunks)
-    )
-    prompt = PROMPT_TEMPLATE.format(context=context, question=question)
-    
-    response = client.chat.completions.create(
-        model="qwen2.5:7b-instruct-q4_K_M",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content
-```
-
-> 防幻觉关键：明确"如果资料里没有，就说资料中未提及"
-
----
-
-### Slide 36｜完整 RAG 流水线串起来
-
-```python
-def rag_pipeline(question, top_k=5):
-    # 1. 查询向量化
-    query_vec = model.encode(question)
-    
-    # 2. 语义检索
-    results = collection.query(
-        query_embeddings=[query_vec],
-        n_results=top_k
-    )
-    retrieved_chunks = results['documents'][0]
-    
-    # 3. 拼 Prompt
-    context = "\n\n".join(f"[{i+1}] {c}" for i, c in enumerate(retrieved_chunks))
-    prompt = PROMPT_TEMPLATE.format(context=context, question=question)
-    
-    # 4. LLM 生成
-    response = client.chat.completions.create(
-        model="qwen2.5:7b-instruct-q4_K_M",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content, retrieved_chunks
-
-# 一行调用
-answer, sources = rag_pipeline("2024 年中国商业航天发射多少次？")
-```
-
----
-
-### Slide 37｜RAG 流水线效果演示
-
-**问**："2024 年中国商业航天发射次数同比变化？"
-
-```
-检索 top-5:
-[1] (dist=0.23) 2024 年商业航天发射次数有望达 30 次，同比增加 50%
-[2] (dist=0.31) 海南商业航天发射场 1 号工位 6 月底具备发射能力
-[3] (dist=0.42) 长征十二号火箭 24 年首飞，3.8 米直径
-[4] (dist=0.48) 卫星互联网组网加速，千帆星座首发
-[5] (dist=0.55) 商业航天产业链聚集格局初显
-
-LLM 回答：
-根据资料，2024 年中国商业航天发射次数预计达 30 次，
-同比 2023 年的 20 次增加 50% [1]。主要得益于海南商业
-航天发射场投入使用 [2] 和长征十二号等新型火箭首飞 [3]。
-```
-
-> 注意引用标注 [1][2][3]——RAG 的可解释性
-
----
-
-## Part 4：高级检索策略 + Agent 记忆概览（12min）
-
-### Slide 39｜高级检索：痛点与三策略
-
-**痛点**：
-1. **用词不匹配**：用户问"法国出口额"，文档写"法兰西出口"
-2. **查询-文档语义鸿沟**：问题是疑问句，文档是陈述句，语义空间不同
-3. **lost in the middle**：LLM 对 top-k 中间位置内容关注度不够
-
-**三策略对比**：
-
-| 策略 | 思想 | 适合场景 |
-|---|---|---|
-| **MQE 多查询扩展** | LLM 改写 N 个等价查询，并行检索合并 | 用词多样性场景 |
-| **HyDE 假设文档嵌入** | LLM 先生成假设答案，用答案向量检索 | 术语密集专业领域 |
-| **Reranker 重排序** | 向量检索粗排 top-10 → Cross-Encoder 精排 top-3 | 对精度要求高 |
-
-**HyDE 为什么有效**：问题是疑问句，文档是陈述句 → 语义空间不同；假设答案也是陈述句 → 更接近真实文档
-
-> Reranker 用 `BAAI/bge-reranker-base`；Bi-Encoder 粗排快，Cross-Encoder 精排准
-
----
-
-### Slide 40｜RAG 评估指标
-
-**如何量化检索质量？**
-
-| 指标 | 定义 | 用途 |
-|---|---|---|
-| **Recall@k** | top-k 结果中包含正确答案的比例 | 召回率（找全了吗） |
-| **Precision@k** | top-k 结果中相关的比例 | 精确率（找得准吗） |
-| **MRR** | 第一个相关结果的平均倒数排名 | 排序质量 |
-
-**示例**：
-- 正确答案在 top-5 的第 3 位 → Recall@5=1, Precision@5=0.2, MRR=1/3
-- 正确答案不在 top-5 → Recall@5=0, MRR=0
-
----
-
-### Slide 41｜Agent 记忆系统
-
-**为什么 Agent 需要 Memory？**
-- LLM 无状态：重启就忘了"我叫张三"
-- 上下文窗口有限：长对话早期信息被挤出
-
-**四类型记忆**：
-
-| 类型 | 存什么 | 生命周期 | 类比 |
-|---|---|---|---|
-| **工作记忆** | 当前对话上下文 | 会话级，TTL 清理 | "现在在聊什么" |
-| **情景记忆** | 具体交互事件 | 长期持久化 | "上周问过 X" |
-| **语义记忆** | 抽象知识/用户偏好 | 长期持久化 | "用户偏好 Python" |
-| **感知记忆** | 多模态信息 | 动态管理 | "用户上传的图" |
-
-**Memory 与 RAG 的关系**：
-- RAG 检索**外部静态知识**（文档）
-- Memory 检索**内部动态交互**（对话历史）
-- 两者结合：用户提问 → 检索 Memory（找偏好）+ 检索 RAG（找知识）→ 拼 Prompt → 生成 → 存入 Memory
-
----
-
-## 收尾
-
-### Slide 42｜知识点速查 + 实验五说明 + Q&A
-
-**知识点速查表**：
-
-| 模块 | 核心知识点 |
-|---|---|
-| 部署 | Ollama 一键起服务 / 量化 Q4_K_M / vLLM PagedAttention + 连续批处理 |
-| RAG 三段式 | 检索 Retrieve → 增强 Enhance → 生成 Generate |
-| RAG 三代 | Naive(关键词) → Advanced(语义) → Modular(混合) |
-| 分块三策略 | 固定字符 / 递归字符（推荐）/ Token |
-| 嵌入模型 | all-MiniLM-L6-v2 (384维) / bge-large-zh (中文) |
-| 向量库 | ChromaDB 五要素：collection/id/document/embedding/metadata |
-| 高级检索 | MQE 多查询扩展 / HyDE 假设文档 / Reranker 重排序 |
-| 评估指标 | Recall@k / Precision@k / MRR |
-| 记忆四类型 | 工作 / 情景 / 语义 / 感知 |
-
-**实验五说明**：
-- 数据：`综述论文.pdf`（ACM TOSEM 2025，"LLM for Mobile: An Initial Roadmap"，29页英文综述）
-- 4 任务：文档加载分块 → 向量化存储 → 检索生成 → 高级检索对比
-- 注意：英文长文档，需考虑英文分块策略和跨语言查询
-
-**工具速查表**：
-
-| 工具 | 用途 | 核心命令/API |
-|---|---|---|
-| Ollama | 本地部署 LLM | `ollama serve` / `ollama pull` |
-| vLLM | 生产级推理 | `vllm serve` |
-| markitdown | 文档转 Markdown | `MarkItDown().convert()` |
-| sentence-transformers | 句子嵌入 | `SentenceTransformer().encode()` |
-| ChromaDB | 向量数据库 | `collection.add()` / `collection.query()` |
-| bge-reranker | 重排序 | Cross-Encoder 编码 |
-| Spec-driven | 部署规约 | `@deploy_speckit.md` |
-
-**Q&A**
+## 附录：Vibe Coding 工具线融入点速查
+
+| 知识点             | Vibe Coding 工具           | 融入方式                       |
+| --------------- | ------------------------ | -------------------------- |
+| Transformer 架构  | CodeBuddy `/explain`     | 让 AI 逐行解释 MultiHeadAttention 源码 |
+| Tokenizer 使用    | Inline Edit (`Cmd+K`)    | 选中代码 → 调整 max_length、padding 策略 |
+| 微调训练循环          | Speckit                  | 用 Spec 描述任务 → 生成训练脚本框架     |
+| 超参数调优           | CodeBuddy 对话             | "Loss 不降怎么办？过拟合怎么处理？"     |
+| LoRA 配置         | Rules (`.codebuddy/rules/`) | 定义项目规范：默认 LoRA rank=8     |
+| 实验调试            | 斜杠指令 `/fix`              | 训练报错时一键定位                  |
+| 代码审查            | 斜杠指令 `/cr`               | 审查微调代码的潜在问题                |
+
+## 附录：Transformers 常用 API 速查
+
+| 操作             | 代码                                                     |
+| -------------- | ------------------------------------------------------ |
+| 加载 Tokenizer   | `BertTokenizer.from_pretrained("bert-base-chinese")`   |
+| 加载分类模型         | `BertForSequenceClassification.from_pretrained(name, num_labels=2)` |
+| 文本编码           | `tokenizer(text, padding="max_length", truncation=True, max_length=128, return_tensors="pt")` |
+| 一行推理           | `pipeline("sentiment-analysis", model="bert-base-chinese")` |
+| 前向传播（含 loss）   | `outputs = model(input_ids=..., attention_mask=..., labels=...)` |
+| 获取 logits      | `outputs.logits`                                       |
+| 获取 loss        | `outputs.loss`                                         |
+| 优化器            | `AdamW(model.parameters(), lr=2e-5)`                   |
+| 学习率调度          | `get_linear_schedule_with_warmup(optimizer, warmup, total)` |
+| LoRA 配置        | `LoraConfig(task_type=TaskType.SEQ_CLS, r=8, target_modules=["query","value"])` |
+| LoRA 包装        | `model = get_peft_model(model, lora_config)`           |
+| 查看可训练参数        | `model.print_trainable_parameters()`                   |
+
+## 附录：关键公式速查
+
+| 概念          | 公式                                                          |
+| ----------- | ----------------------------------------------------------- |
+| 自注意力        | $\text{Attention}(Q,K,V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V$ |
+| FFN         | $\text{FFN}(x) = \max(0, xW_1 + b_1)W_2 + b_2$             |
+| 残差 + 层归一化   | $\text{Output} = \text{LayerNorm}(x + \text{Sublayer}(x))$ |
+| 位置编码（偶数维）   | $PE_{(pos, 2i)} = \sin\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$ |
+| LoRA 权重更新   | $W_{\text{new}} = W + AB$，A:(d,r), B:(r,d)                  |
+| 余弦相似度       | $\cos(\theta) = \frac{\vec{a} \cdot \vec{b}}{|\vec{a}||\vec{b}|}$ |

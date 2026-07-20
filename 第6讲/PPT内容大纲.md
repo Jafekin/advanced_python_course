@@ -1,913 +1,845 @@
-# 第六讲：Agent 系统开发
-
-> **设计说明**：本 PPT 共 38 张 Slide，聚焦概念与原理讲解，代码细节全部放到 notebook 中演示。每张 Slide 标注了对应的 notebook cell 编号，方便课堂对照。
->
-> **使用约定**：标 `[notebook cX]` 表示对应 notebook 的第 X 个 cell。
-
+# 第五讲：大模型部署与检索增强生成（RAG）
 ---
 
 ### Slide 1｜封面
 
-**标题**：Python 进阶 · 第 6 讲
-**副标题**：Agent 系统开发——从 RAG 到智能体
+**标题**：Python 进阶 · 第 5 讲
+**副标题**：大模型部署 × 检索增强生成（RAG）
 **教师**：孙青 / 欧阳元新 · 计算机学院
 **平台**：CloudStudio + CodeBuddy
 
 ---
 
-### Slide 2｜本讲全景导航  `[notebook c1]`
+### Slide 2｜本讲全景导航
 
-**五大 Part，配套 Vibe Coding 工具：**
+**两大板块，配套 Vibe Coding 工具：**
 
-| Part | 主题 | 关键概念 | Vibe Coding 工具 |
+| 模块 | 主题 | 关键技术 | Vibe Coding 工具 |
 |---|---|---|---|
-| Part 1 | 从 RAG 到 Agent | 局限性 / 三大组件 / ReAct | Spec-driven |
-| Part 2 | 工具调用 | Function Calling / 工具描述 | Prompt 工程延伸 |
-| Part 3 | ReAct Agent 实战 | Agent / 记忆 / Gradio | Inline Edit + @文件 |
-| Part 4 | 多 Agent 与协议 | MCP / A2A / ANP | 上下文工程 |
-| Part 5 | Skill + 总结 | Skill 写法 / 工具链回顾 | 全工具链回顾 |
+| Part 1 | 大模型部署 | Ollama / 量化 / vLLM | Spec-driven（deploy_speckit.md） |
+| Part 2 | RAG 基础 | 三段式 / 三代演进 | 两段式 Prompt |
+| Part 3 | RAG 流水线 | 分块 / 向量化 / ChromaDB | Inline Edit + @文件引用 |
+| Part 4 | 高级检索 + 记忆 | MQE / HyDE / 记忆四类型 | Prompt 调优 / 上下文工程 |
 
-> 完成标准：能基于 LangChain 构建一个带 RAG 工具 + 多轮对话记忆的 Gradio 智能问答助手
-
----
-
-### Slide 3｜承上启下：六讲完整路径
-
-```
-第1讲 数据处理 + Vibe Coding 入门  →  会用 Pandas + 会与 AI 对话
-第2讲 机器学习 + AI 协作建模      →  会用 Scikit-learn + Spec-driven
-第3讲 NLP 基础 + Prompt 工程      →  会调 API + 会写 Prompt
-第4讲 NLP 进阶 + 模型微调         →  能微调 BERT + 理解 Transformer
-第5讲 大模型部署 + RAG            →  能部署模型 + 能搭 RAG 流水线
-第6讲 Agent 系统开发（本讲）      →  能开发完整 AI 应用
-```
-
-**本讲完成最后一跃**：
-- 第5讲 RAG："给我一篇文档，我帮你找答案"——**被动检索**
-- 第6讲 Agent："给我一个目标，我自己想办法完成"——**主动行动**
+> 完成标准：能从零搭一个领域文档问答系统，并理解 Agent 记忆的工程地位
 
 ---
 
-## Part 1：从 RAG 到 Agent（概念原理） `[notebook c5-c8]`
-
-### Slide 4｜RAG 的局限性  `[notebook c6]`
-
-**回顾第5讲：RAG 问答系统的流水线**
+### Slide 3｜承上启下：从第4讲到第5讲
 
 ```
-用户提问 → 向量检索 → 拼 Prompt → LLM 生成回答
+第3讲 NLP 基础与 Prompt 工程   →  会调 OpenAI 兼容 API
+第4讲 NLP 进阶与模型微调        →  能白盒定制 BERT
+第5讲 大模型部署与 RAG（本讲）  →  让模型"用得上、答得准"
+第6讲 Agent 系统开发            →  让模型"思考+行动"
 ```
 
-**但 RAG 有三个"不能"**：
-
-| 能力 | RAG | Agent |
-|---|---|---|
-| 查资料 | 能（向量检索） | 能（RAG 作为工具之一） |
-| 做计算 | ❌ 不能 | ✅ 能（调用计算器工具） |
-| 多步推理 | ❌ 不能 | ✅ 能（ReAct 循环） |
-| 自主决策 | ❌ 不能 | ✅ 能（决定用哪个工具） |
-| 执行动作 | ❌ 不能 | ✅ 能（调 API、写文件） |
-
-> 核心洞察：**RAG 是 Agent 的一个"器官"，不是 Agent 本身**
+**本讲解决两个问题**：
+1. 模型训练好了，怎么变成一个**可调用的服务**？（部署）
+2. 模型知识过期、会幻觉，怎么让它**基于真实文档回答**？（RAG）
 
 ---
 
-### Slide 5｜什么是 Agent？定义与架构
+## Part 0：本讲路线图（5min）
 
-**定义**：Agent（智能体）是一个能够**感知环境 → 自主决策 → 执行行动 → 观察反馈**的闭环系统。
+### Slide 4｜为什么需要部署和检索？
 
-```
-                    ┌──────────────┐
-                    │   用户目标    │
-                    └──────┬───────┘
-                           ▼
-                    ┌──────────────┐
-                    │  LLM（大脑）  │ ◄── 规划（Planning）
-                    └──────┬───────┘
-                     ┌─────┼─────┐
-                     ▼     ▼     ▼
-                  ┌────┐┌────┐┌────┐
-                  │工具1││工具2││工具3│ ◄── 工具（Tools）
-                  └────┘└────┘└────┘
-                           ▼
-                    ┌──────────────┐
-                    │   记忆系统    │ ◄── 记忆（Memory）
-                    └──────────────┘
-```
+**问题一：模型在哪跑？**
+- 训练好的模型权重是几个 GB 的文件，怎么变成 HTTP API？
+- 云端 API 贵且数据出域 → 需要本地部署
+- 手机/边缘设备算力有限 → 需要量化
 
-**公式**：`Agent = LLM + Tools + Memory + Planning`
+**问题二：模型答得准吗？**
+- 模型训练数据有截止日期（GPT-4 截止 2023 年）
+- 问"2024 年中国商业航天发射次数"→ 模型不知道或幻觉乱答
+- 把航天产业报告喂给模型 → 让它基于报告回答
 
 ---
 
-### Slide 6｜Agent 三大组件详解  `[notebook c7]`
+### Slide 5｜本讲路线图
 
-| 组件 | 功能 | 类比 | 课程来源 |
-|---|---|---|---|
-| **规划（Planning）** | 任务拆解、推理决策、行动排序 | 大脑的"前额叶" | 第3讲 Prompt 工程延伸 |
-| **工具（Tools）** | 执行具体动作（搜索、计算、API） | 人的"双手" | 第5讲 RAG 封装为工具 |
-| **记忆（Memory）** | 保存对话历史、学习经验 | 人的"海马体" | 第5讲 Memory 概念落地 |
-
-**第5讲已经准备好了什么？**
-- RAG 流水线 → Agent 的**检索工具**
-- Memory 系统概念 → Agent 的**记忆组件**
-- Ollama 本地 LLM → Agent 的**大脑**
-
-> 本讲做的是"组装"——把第5讲的零件拼成一个完整的 Agent
+```
+Part 1 部署（18min）              Part 2-3 RAG（52min）
+┌──────────────────┐              ┌──────────────────────┐
+│ 部署全景 + 选型  │              │ Part 2 RAG 基础       │
+│ 量化原理         │     →        │ Part 3 流水线从零实现  │
+│ vLLM 深入        │              └──────────────────────┘
+└──────────────────┘                        ↓
+                                  Part 4 高级+记忆（12min）
+                                  ┌──────────────────────┐
+                                  │ MQE/HyDE 原理        │
+                                  │ 记忆系统概览 → 第6讲 │
+                                  └──────────────────────┘
+```
 
 ---
 
-### Slide 7｜ReAct 范式：推理-行动循环  `[notebook c8]`
+## Part 1：大模型部署（18min）
 
-**ReAct = Reasoning + Acting**（Yao et al., ICLR 2023）
+### Slide 6｜部署全景：从权重到服务
 
-**核心思想**：把"思考"和"行动"显式结合，模仿人类解题过程
+**为什么要部署？**
+- 模型权重（.safetensors / .gguf）是文件，不能直接被业务系统调用
+- 需要一个**推理服务**把权重加载进显存，对外暴露 HTTP API
+
+**部署 = 推理服务**（不是训练）：
 
 ```
-     ┌──────────────────────────────────┐
-     │  Thought 1: 分析问题，决定行动     │
-     └────────────┬─────────────────────┘
-                  ▼
-     ┌──────────────────────────────────┐
-     │  Action 1: 调用工具                │
-     └────────────┬─────────────────────┘
-                  ▼
-     ┌──────────────────────────────────┐
-     │  Observation 1: 工具返回结果       │
-     └────────────┬─────────────────────┘
-                  ▼
-          （结果追加到上下文）
-                  ▼
-     ┌──────────────────────────────────┐
-     │  Thought 2: 基于观察，下一步...    │
-     └────────────┬─────────────────────┘
-                  ▼
-              ... 循环 ...
-                  ▼
-     ┌──────────────────────────────────┐
-     │  Final Answer: 最终回答            │
-     └──────────────────────────────────┘
+模型权重文件 ──┐
+              ├──→ 推理引擎 ──→ HTTP API ──→ 业务系统调用
+配置文件     ──┘     (加载到显存)    (OpenAI 兼容)
 ```
 
-> 关键：思考指导行动，行动的结果又反过来修正思考
+> 本讲聚焦"把模型跑起来并暴露 API"，不涉及训练/微调（第4讲已讲）
 
 ---
 
-### Slide 8｜ReAct vs Plan-and-Execute 两种范式
+### Slide 7｜主流部署方案对比
 
-**两种规划策略对比**：
-
-| 范式 | 策略 | 流程 | 适用场景 | 类比 |
+| 方案 | 定位 | 硬件 | 优势 | 场景 |
 |---|---|---|---|---|
-| **ReAct** | 边想边做 | Thought→Action→Observation 循环 | 信息不完整、需探索 | 即兴演讲 |
-| **Plan-and-Execute** | 先想后做 | 先规划完整计划，再逐步执行 | 目标明确、步骤清晰 | 写论文按大纲 |
+| **Ollama** | 一键式 | 4GB+显存/CPU | 零配置、模型库丰富 | 个人/原型/教学 |
+| **vLLM** | 高性能 | NVIDIA GPU | PagedAttention、高并发 | 生产/企业 |
+| **llama.cpp** | 极致轻量 | CPU/低配GPU | 纯CPU流畅、GGUF量化 | 嵌入式/边缘 |
+| **TGI** | HF 官方 | 多 GPU | 工程化、容器友好 | 企业 HF 生态 |
+| **LM Studio** | GUI 可视化 | 6GB+显存 | 零命令行 | 普通用户 |
 
-**Plan-and-Execute 流程**：
-```
-[规划阶段] Plan: Step1 → Step2 → Step3 → Step4
-[执行阶段] Execute Step1 ✓ → Step2 ✓ → Step3 ✓ → Step4 ✓
-```
-
-> 本讲实战选用 **ReAct**：更适合"基于文档问答"这种探索性场景
+> 本讲概念讲 Ollama + 深入讲 vLLM；Ollama 实操命令见 notebook 自学
 
 ---
 
-## Part 2：工具调用（概念原理） `[notebook c9-c17]`
+### Slide 8｜Ollama：本地一键起服务（概念页）
 
-### Slide 9｜Function Calling：LLM 如何调用工具
+**Ollama 三大特点**：
+- 一行命令拉模型（自动选量化版）：`ollama pull qwen2.5:7b-instruct-q4_K_M`
+- 自动暴露 OpenAI 兼容 API：`/v1/chat/completions`
+- CPU/GPU 自动切换（没 GPU 也能跑）
 
-**传统方式 vs Function Calling**：
+**调用方式**（关键：只改 `base_url`，第3讲学的 openai 库调用方式完全适用）：
 
+```python
+from openai import OpenAI
+client = OpenAI(
+    base_url="http://localhost:11434/v1",
+    api_key="ollama"  # 本地服务，任意字符串即可
+)
+response = client.chat.completions.create(
+    model="qwen2.5:7b-instruct-q4_K_M",
+    messages=[{"role": "user", "content": "你好"}],
+)
 ```
-传统方式（第3讲）：
-  用户 → LLM → 纯文本回答（LLM 不知道有工具可用）
 
-Function Calling（本讲）：
-  用户 → LLM → "我需要调用 search 工具" → 执行工具 → 结果回传 LLM → 最终回答
-```
-
-**本质区别**：
-- 传统：LLM 只能"说话"
-- Function Calling：LLM 能"做事"——通过返回结构化 JSON 告诉程序该调哪个工具
-
-> 这是 Agent 能力的基石：没有 Function Calling，就没有 Agent
+> 安装、pull、serve 的完整命令流见 `课程代码案例.ipynb` Part 1
 
 ---
 
-### Slide 10｜Function Calling 完整 5 步流程
+### Slide 9｜Vibe Coding 工具：Spec-driven 部署规约
 
-```
-Step 1: 用户提问 + 工具定义 一起发给 LLM
-         ↓
-Step 2: LLM 判断"需要调用工具"，返回工具名 + 参数（JSON）
-         ↓
-Step 3: 程序解析 JSON，执行对应的函数
-         ↓
-Step 4: 函数返回结果，回传给 LLM（作为 tool 消息）
-         ↓
-Step 5: LLM 基于工具结果生成最终回答
+**deploy_speckit.md**（轻量 Speckit）：
+
+```markdown
+# 部署规约
+
+## Constitution（硬约束）
+- 端口：11434
+- 模型：qwen2.5:7b-instruct-q4_K_M
+- 上下文长度：32768
+- 必须 OpenAI 兼容
+- 必须支持流式输出
+
+## Context（环境）
+- 部署环境：CloudStudio / 本地 macOS
+- GPU：可选（无 GPU 退化到 CPU 模式）
 ```
 
-**关键点**：
-- Step 2 中 LLM **不是返回文本，而是返回结构化的 tool_calls**
-- Step 3 的执行权在**程序**手里，不是 LLM 直接执行
-- Step 4 的结果必须回传，否则 LLM 会"以为自己做了但没做"
+**用法**：每次与 AI 对话部署问题时 `@deploy_speckit.md`，AI 全程遵守约束
+
+> 对比"每轮重复说端口和模型" vs "Speckit 一次锁定"
 
 ---
 
-### Slide 11｜工具三要素  `[notebook c13]`
+### Slide 10｜量化原理：为什么要量化？
 
-**每个工具必须包含三个信息**：
+**问题**：7B 模型 FP16 需要多少显存？
 
-| 要素 | 说明 | 示例 |
-|---|---|---|
-| **名称（Name）** | 唯一标识符，LLM 在 Action 中引用 | `rag_search` |
-| **描述（Description）** | 自然语言说明用途，**是 LLM 决策的关键依据** | "从航天产业报告中检索相关段落" |
-| **执行逻辑（Function）** | 实际执行的 Python 函数 | `def rag_search(query): ...` |
-
-**OpenAI Function Calling 的 JSON Schema**（概念）：
-
-```json
-{
-  "name": "rag_search",
-  "description": "从航天产业报告中检索与用户问题相关的段落",
-  "parameters": {
-    "type": "object",
-    "properties": { "query": {"type": "string"} },
-    "required": ["query"]
-  }
-}
+```
+7B 参数 × 2 字节（FP16） = 14 GB
 ```
 
-> LangChain 的 `@tool` 装饰器会自动从 docstring 提取这些信息
+消费级显卡（RTX 3060 = 12GB）跑不动！
 
----
+**量化 = 降低参数精度，换取显存和速度**
 
-### Slide 12｜工具描述的"Prompt 工程"  `[notebook c15]`
-
-**工具描述 = 写给模型看的"使用说明书"**
-
-| 维度 | 坏描述 | 好描述 |
-|---|---|---|
-| 内容 | "搜索工具" | "从航天产业报告中检索相关段落。当用户提问涉及航天数据、发射次数、企业信息时使用。" |
-| 问题 | LLM 不知道什么时候该用 | LLM 清楚使用场景 |
-| 后果 | 不该调时调，该调时不调 | 精准匹配用户意图 |
-
-**工具描述的黄金法则**：
-1. 说清楚**做什么**（功能）
-2. 说清楚**什么时候用**（触发条件）
-3. 说清楚**输入什么、输出什么**（参数语义）
-4. 说清楚**不能做什么**（边界）
-
-> Vibe Coding 视角：工具描述是 Prompt 工程从"对话层"到"工具层"的延伸
-
----
-
-### Slide 13｜LangChain 工具定义三种方式（概念对比）
-
-| 方式 | 语法 | 适用场景 | 代码量 |
+| 精度 | 每参数字节 | 7B 显存 | 精度损失 |
 |---|---|---|---|
-| **@tool 装饰器** | `@tool` + docstring | 简单工具，快速定义 | 最少 |
-| **BaseTool 子类** | 继承 `BaseTool` + `args_schema` | 复杂工具，需严格类型校验 | 中等 |
-| **bind_tools** | `llm.bind_tools([tool1, tool2])` | 把工具绑定到 LLM | 一行 |
+| FP16 | 2 | 14 GB | 基准 |
+| INT8 | 1 | 7 GB | < 1% |
+| INT4 | 0.5 | **4 GB** | < 3% |
 
-**三者关系**（不是三选一，而是组合使用）：
-
-```
-@tool / BaseTool  →  定义工具
-        ↓
-bind_tools        →  把工具绑到 LLM 上
-        ↓
-LLM 就能在回答时决定调用哪个工具
-```
-
-> 详见 notebook c14、c17 的代码演示
+> INT4 后 7B 模型 4GB 显存可跑，RTX 3060 也能用；MMLU 损失 < 3%
 
 ---
 
-### Slide 14｜消息角色全景
+### Slide 11｜GGUF 量化格式：Q4_K_M 是什么？
 
-| 角色 | 作用 | 示例 |
-|---|---|---|
-| `system` | 设定 Agent 行为规约 | "你是航天产业分析助手..." |
-| `human` / `user` | 用户输入 | "2024年中国航天发射次数？" |
-| `ai` / `assistant` | LLM 回复（可能含 tool_calls） | tool_calls: [{"name": "rag_search", ...}] |
-| `tool` | 工具执行结果 | "根据报告，2024年完成约70次发射..." |
+**GGUF**：llama.cpp/Ollama 使用的量化文件格式
 
-**消息流是 Agent 的"神经系统"**：
+**K-Quants 量化级别**（不是简单均匀量化）：
 
-```
-system → human → ai(tool_calls) → tool → ai(最终回答)
-                                         ↑
-                                    基于工具结果生成
-```
-
-> 所有信息通过消息传递，Agent 的每一步决策都基于消息历史
-
----
-
-## Part 3：ReAct Agent 从零构建 `[notebook c18-c38]`
-
-### Slide 15｜构建路线图  `[notebook c18]`
-
-```
-Step 1: 准备 LLM（复用第5讲 Ollama）         [c11-c12]
-   ↓
-Step 2: 构建 RAG 知识库（复用第5讲流水线）    [c19-c23]
-   ↓
-Step 3: 封装 RAG 工具 + 计算器工具            [c24-c26]
-   ↓
-Step 4: 构建 ReAct Agent（LangChain）         [c27-c28]
-   ↓
-Step 5: 测试 Agent（3个用例）                 [c29-c31]
-   ↓
-Step 6: 添加多轮对话记忆                      [c32-c34]
-   ↓
-Step 7: 上下文窗口管理                        [c35-c36]
-   ↓
-Step 8: Gradio 交互界面（最终交付物）         [c37-c38]
-```
-
-> 每一步都在前一步基础上叠加能力，从"能调用工具"到"能记住对话"到"能交互使用"
-
----
-
-### Slide 16｜Step 1：LLM 作为 Agent 的大脑  `[notebook c11-c12]`
-
-**核心概念**：Ollama 本地 LLM = Agent 的"大脑"
-
-```
-ChatOpenAI (LangChain)
-    │
-    ├─ model: qwen2.5:7b-instruct-q4_K_M
-    ├─ base_url: http://localhost:11434/v1  ← Ollama 本地服务
-    ├─ api_key: "ollama"                    ← Ollama 不需要真实 key
-    └─ temperature: 0                       ← Agent 需要确定性输出
-```
-
-**与第3讲的区别**：
-
-| 维度 | 第3讲（纯 LLM） | 第6讲（Agent 大脑） |
-|---|---|---|
-| 角色 | 回答问题 | 决策调用哪个工具 |
-| 输出 | 纯文本 | 可能是 tool_calls（JSON） |
-| 温度 | 可高可低 | 建议 0（要稳定决策） |
-
-> 关键：temperature=0 让 Agent 的决策可复现——同样的输入应该走同样的工具路径
-
----
-
-### Slide 17｜Step 2：RAG 知识库构建原理  `[notebook c19-c23]`
-
-**复用第5讲流水线**（不重新发明轮子）：
-
-```
-航天产业报告.pdf
-       ↓ markitdown 转换
-    纯文本
-       ↓ 递归字符分块
-    文本块列表（chunk_size=500, overlap=100）
-       ↓ sentence-transformers 向量化
-    嵌入向量列表
-       ↓ ChromaDB 存储
-    向量数据库（可检索）
-```
-
-**为什么需要分块？（回顾第5讲原理）**：
-- 嵌入模型有 512 token 限制
-- 大段稀释语义
-- 检索精度更高
-- Prompt 长度可控
-
-> 详见 notebook c20-c23 的完整代码实现
-
----
-
-### Slide 18｜递归字符分块原理  `[notebook c22]`
-
-**核心思想**：按分隔符优先级递归切分，保留语义边界
-
-```
-分隔符优先级（从高到低）:
-  \n\n  →  \n  →  。  →  ；  →  空格  →  强制切分
-
-文本: "第一章 概述\n\n商业航天是...\n\n第二章 数据\n\n2024年发射..."
-       ↓ 按 \n\n 切
-块1: "第一章 概述"（太短，合并）
-块2: "商业航天是..."（500字以内，保留）
-块3: "第二章 数据"（合并）
-块4: "2024年发射..."（保留）
-```
-
-**overlap（重叠窗口）的作用**：
-- 块之间保留 100 字重叠
-- 避免关键信息被切到两个块之间丢失
-- 提高检索的上下文完整性
-
----
-
-### Slide 19｜向量化与 ChromaDB 存储原理  `[notebook c23]`
-
-**向量化**：把文本变成高维向量（可计算相似度）
-
-```
-"2024年航天发射" → [0.12, -0.34, 0.56, ...]  （384维）
-"商业航天发展"   → [0.15, -0.31, 0.52, ...]  （384维）
-                                         ↑
-                              语义相近 → 向量相近
-```
-
-**ChromaDB 四要素**（回顾第5讲）：
-
-| 要素 | 类比 SQL | 说明 |
-|---|---|---|
-| `collection` | 表 | 向量库的命名空间 |
-| `document` | 行 | 原始文本 |
-| `embedding` | 索引 | 向量（用于相似度搜索） |
-| `metadata` | 列 | 附加信息（来源、页码等） |
-
-> 本实验用内存模式 `chromadb.Client()`，生产环境用 `PersistentClient` 持久化
-
----
-
-### Slide 20｜Step 3：封装 RAG 工具  `[notebook c24-c26]`
-
-**把检索能力变成 Agent 可调用的工具**：
-
-```
-RAG 流水线（函数）              LangChain Tool
-─────────────────              ─────────────
-def rag_search(query):    →   @tool
-  embed = encode(query)       def rag_search(query):
-  results = collection.query      """工具描述..."""
-  return results                 # 原检索逻辑
-                                 return results
-```
-
-**工具列表组合**：
-
-| 工具名 | 功能 | 触发场景 |
-|---|---|---|
-| `rag_search` | 检索航天报告 | 用户问航天事实 |
-| `calculator` | 数学计算 | 需要数值运算 |
-
-> 详见 notebook c25-c26 的 `@tool` 定义和工具列表组装
-
----
-
-### Slide 21｜Step 4：构建 ReAct Agent  `[notebook c27-c28]`
-
-**LangChain 的两个核心组件**：
-
-| 组件 | 作用 | 类比 |
-|---|---|---|
-| `create_react_agent` | 创建 ReAct 推理逻辑 | Agent 的"大脑皮层" |
-| `AgentExecutor` | 运行 Agent，管理循环 | Agent 的"执行神经" |
-
-**AgentExecutor 的关键参数**：
-
-| 参数 | 作用 | 推荐值 |
-|---|---|---|
-| `verbose` | 打印推理过程 | `True`（教学用） |
-| `max_iterations` | 最大推理步数 | `5`（防止无限循环） |
-| `handle_parsing_errors` | 解析失败时容错 | `True`（必开） |
-
-> `max_iterations` 是 Agent 的"安全阀"——防止 Agent 在错误中无限循环
-
----
-
-### Slide 22｜ReAct Prompt 模板结构  `[notebook c28]`
-
-**ReAct 的 Prompt 必须包含格式说明**（让 LLM 按固定格式输出）：
-
-```
-你是一个航天产业分析助手。
-
-你可以使用以下工具：{tools}
-
-请严格按照以下格式回答：
-Question: 用户的问题
-Thought: 分析问题，决定下一步行动
-Action: 工具名称（必须是以下之一：{tool_names}）
-Action Input: 工具的输入参数
-Observation: 工具返回的结果
-... （可重复）
-Thought: 我已经有了足够信息
-Final Answer: 最终回答
-
-开始！
-Question: {input}
-{agent_scratchpad}
-```
-
-**三个占位符的作用**：
-- `{tools}` / `{tool_names}`：注入工具列表
-- `{input}`：用户问题
-- `{agent_scratchpad}`：Agent 的"草稿本"——累积的 Thought/Action/Observation
-
----
-
-### Slide 23｜Agent 运行机制：决策过程  `[notebook c29-c31]`
-
-**为什么 Agent 知道要调用 rag_search 而不是 calculator？**
-
-```
-用户问题: "2024年中国商业航天的发射情况如何？"
-                    ↓
-LLM 看到工具描述:
-  - rag_search: "从航天产业报告中检索...航天数据、发射次数..."  ← 匹配！
-  - calculator: "执行数学计算...加减乘除..."                  ← 不匹配
-                    ↓
-LLM 决策: 调用 rag_search
-```
-
-**这就是为什么 Part 2 反复强调：工具描述 = 写给模型的 Prompt**
-
-**三个测试用例的决策路径**（见 notebook c29-c31）：
-
-| 测试 | 问题类型 | Agent 决策路径 |
-|---|---|---|
-| 测试1 | 纯检索 | rag_search → 回答 |
-| 测试2 | 纯计算 | calculator → 回答 |
-| 测试3 | 多步推理 | rag_search → calculator → 回答 |
-
----
-
-### Slide 24｜Step 6：多轮对话记忆  `[notebook c32-c34]`
-
-**问题**：默认 Agent 是"金鱼记忆"——每次调用都从零开始
-
-**解决方案**：用 `ChatMessageHistory` + `RunnableWithMessageHistory` 包装
-
-```
-用户: "报告中提到了哪些航天企业？"     → Agent 回答 A
-                                        ↓ 存入 history
-用户: "这些企业中哪个最活跃？"         → Agent 看 history
-    ↑                                       ↓
-    理解"这些企业"指代第1轮的结果    结合上下文回答 B
-```
-
-**Session 隔离机制**：
-
-```
-session_id = "user_001"  → 独立的 history
-session_id = "user_002"  → 另一个独立的 history
-```
-
-> 不同用户的对话互不干扰——这是生产环境的基础要求
-
----
-
-### Slide 25｜上下文窗口管理  `[notebook c35-c36]`
-
-**问题**：对话越来越长，Token 会爆
-
-```
-4K tokens ≈ 3000 汉字 ≈ 10轮简单对话
-8K tokens ≈ 6000 汉字 ≈ 20轮简单对话
-```
-
-**三种管理策略对比**：
-
-| 策略 | 原理 | 优点 | 缺点 |
+| 格式 | 显存 | 精度 | 说明 |
 |---|---|---|---|
-| **滑动窗口** | 只保留最近 N 轮 | 简单 | 丢失早期信息 |
-| **Token 截断** | 保留最近 K 个 token | 精确控制 | 可能切断语义 |
-| **摘要压缩** | LLM 把旧对话总结 | 保留要点 | 增加 LLM 调用成本 |
+| Q4_0 | 最小 | 较低 | 最简单的 4-bit |
+| **Q4_K_M** | 小 | **好** | 推荐：重要层用更高精度 |
+| Q5_K_M | 中 | 更好 | 5-bit，平衡型 |
+| Q8_0 | 较大 | 很好 | 8-bit，接近 FP16 |
 
-**工程建议**：
-- 教学/演示：滑动窗口（最简单）
-- 生产环境：Token 截断 + 始终保留 system message
-- 长期对话：摘要压缩 + 向量化存储
+**K-Quants 思想**：不是所有层都用同样精度——注意力层等重要层保留更高精度，FFN 层用低精度
 
-> 详见 notebook c36 的 `trim_messages` 演示
+> 选型经验：教学/原型用 Q4_K_M，生产高精度场景用 Q5_K_M 或 Q8_0
 
 ---
 
-### Slide 26｜Step 8：Gradio 交互界面  `[notebook c37-c38]`
+### Slide 12｜量化方法：PTQ vs QAT
 
-**Gradio = 快速构建 ML/AI 应用的 Web 界面**
+| 方法 | 全称 | 原理 | 成本 | 精度 |
+|---|---|---|---|---|
+| **PTQ** | 训练后量化 | 模型训练完直接量化 | 低（分钟级） | 略降 |
+| **QAT** | 量化感知训练 | 训练时就模拟量化 | 高（需重新训练） | 更好 |
+
+**实际工程**：90% 场景用 PTQ（足够好且快）；QAT 用于对精度要求极高的场景
+
+**显存计算公式**：
 
 ```
-┌─────────────────────────────────────┐
-│     航天产业智能问答助手             │
-├─────────────────────────────────────┤
-│  ┌─────────────────────────────┐   │
-│  │  对话窗口（Chatbot）         │   │
-│  │  用户: 2024年航天发射？      │   │
-│  │  Agent: 根据报告，约70次...  │   │
-│  └─────────────────────────────┘   │
-│  ┌─────────────────────────────┐   │
-│  │  输入框 + 发送按钮           │   │
-│  └─────────────────────────────┘   │
-│  [发送]  [清除对话]                 │
-│  示例: 2024年发展趋势？             │
-└─────────────────────────────────────┘
+显存 ≈ 参数量 × 每参数字节数
+7B × INT4(0.5字节) = 3.5 GB
+7B × FP16(2字节)   = 14 GB
 ```
-
-**界面要素**：
-- Chatbot 窗口（展示多轮对话）
-- 输入框 + 发送按钮
-- 清除对话按钮（重置 history）
-- 示例问题（降低使用门槛）
-
-> 这是课程的最终交付物——学生能拿出一个"能用的 AI 应用"
 
 ---
 
-### Slide 27｜完整 Agent 架构图（总结）
+### Slide 13｜vLLM 深入（一）：PagedAttention
+
+**问题**：传统推理的 KV Cache 显存碎片严重
+- 每个请求预分配最大长度显存（如 2048 token）
+- 实际生成可能只用了 200 token → 90% 显存浪费
+
+**PagedAttention 思想**（类比 OS 虚拟内存）：
 
 ```
-                    ┌─────────────────────────────┐
-                    │      Gradio 界面             │
-                    │  用户输入 ←→ 对话展示        │
-                    └────────────┬────────────────┘
-                                 │
-                    ┌────────────▼────────────────┐
-                    │   AgentExecutor              │
-                    │   (ReAct 推理循环)            │
-                    │                              │
-                    │  Thought → Action →          │
-                    │  Observation → ... →          │
-                    │  Final Answer                │
-                    └───┬──────────┬──────────┬───┘
-                        │          │          │
-                   ┌────▼───┐ ┌───▼────┐ ┌──▼──────┐
-                   │  LLM   │ │ Tools  │ │ Memory  │
-                   │(Ollama)│ │        │ │         │
-                   │ qwen2.5│ │rag     │ │ chat    │
-                   │        │ │search  │ │ history │
-                   │        │ │calc    │ │         │
-                   └────────┘ └───┬────┘ └─────────┘
-                                  │
-                          ┌───────▼───────┐
-                          │  ChromaDB     │
-                          │  向量数据库    │
-                          │ (航天产业报告) │
-                          └───────────────┘
+传统：连续分配              PagedAttention：分页分配
+┌──────────────┐            ┌──┬──┬──┬──┬──┬──┐
+│  请求1       │            │P1│P2│P1│P3│P2│P1│  按需分配
+│  (2048 tok) │            └──┴──┴──┴──┴──┴──┘  消除碎片
+└──────────────┘
 ```
 
-> 从第1讲的 Pandas 到现在的完整 Agent——六讲的积累都在这张图里
+- KV Cache 像"内存页"，按需分配/回收
+- 显存利用率从 ~30% 提升到 ~95%
+- 同样显存能跑更多并发请求
 
 ---
 
-## Part 4：多 Agent 协作与通信协议 `[notebook c39-c43]`
+### Slide 14｜vLLM 深入（二）：连续批处理
 
-### Slide 28｜为什么需要多 Agent？  `[notebook c40]`
-
-**单 Agent 的局限**：
+**传统静态批处理**：等齐一批再一起推理，长请求拖慢短请求
 
 ```
-用户: "帮我调研商业航天行业，写一份分析报告"
-
-单 Agent 需要：搜索资料 → 整理数据 → 分析趋势 → 撰写报告 → 检查质量
-全部由一个 Agent 完成 → 容易出错、效率低、上下文爆
+请求1(短) ─┐
+请求2(长) ─┤── 等齐 ──→ 一起推理 ── 请求1 等请求2 完成
+请求3(短) ─┘
 ```
 
-**多 Agent 的优势**：
+**连续批处理**（Continuous Batching）：动态拼批
 
 ```
-研究员 Agent: 搜索和整理资料      ──→ 把资料传给分析师
-分析师 Agent: 数据分析和趋势判断  ──→ 把分析结果传给撰写员
-撰写员 Agent: 撰写报告            ──→ 把报告传给审核员
-审核员 Agent: 检查质量和修改建议  ──→ 最终交付
+请求1 完成 → 立刻返回 → 位置空出 → 新请求填入
+请求2 继续推理 → 不阻塞其他请求
 ```
 
-> 类比人类团队：分工明确、各司其职、协作完成
+**效果**：吞吐量提升 2-10 倍，并发越高优势越大
 
 ---
 
-### Slide 29｜多 Agent 协作四种模式
+### Slide 15｜vLLM vs Ollama 性能对比
 
-| 模式 | 描述 | 适用场景 | 图示 |
+**实测数据**（RTX 3090，Qwen3 8B，FP16）：
+
+| Batch Size | Ollama 响应(s) | vLLM 响应(s) | Ollama tok/s | vLLM tok/s |
+|---|---|---|---|---|
+| 1 | 5.68 | 5.44 | 45.1 | 47.1 |
+| 8 | 7.64 | 5.82 | 268.0 | 351.9 |
+| 16 | 15.6 | 6.42 | 262.9 | **638.4** |
+
+**结论**：
+- 单请求（Batch=1）：两者接近
+- 高并发（Batch=16）：vLLM 吞吐是 Ollama 的 **2.4 倍**
+- vLLM 显存略高，但吞吐优势巨大
+
+> 数据来源：博客园《Ollama和vLLM大模型推理性能对比实测》
+
+---
+
+### Slide 16｜vLLM 部署命令
+
+```bash
+# 单 GPU 启动 Qwen2.5 7B
+vllm serve Qwen/Qwen2.5-7B-Instruct \
+    --port 8000 \
+    --tensor-parallel-size 1
+
+# 多 GPU（2 卡）
+vllm serve Qwen/Qwen2.5-7B-Instruct \
+    --tensor-parallel-size 2 \
+    --port 8000
+
+# API 调用（OpenAI 兼容）
+curl http://localhost:8000/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model":"Qwen/Qwen2.5-7B-Instruct",
+         "messages":[{"role":"user","content":"你好"}]}'
+```
+
+> vLLM API 协议与 OpenAI 完全兼容，业务代码无需修改
+
+---
+
+### Slide 17｜部署选型决策树
+
+```
+你的场景？
+├── 个人开发 / 原型 / 教学
+│   └── Ollama（一键起服务，CPU/GPU 自适应）
+├── 生产高并发 / 企业 API 服务
+│   └── vLLM（PagedAttention + 连续批处理）
+├── CPU only / 嵌入式 / 边缘设备
+│   └── llama.cpp（GGUF 量化，纯 CPU 流畅）
+├── HuggingFace 生态 / 容器化
+│   └── TGI（HF 官方，工程化好）
+└── 普通用户 / 不想敲命令
+    └── LM Studio（GUI 可视化）
+```
+
+> 本讲实验用 Ollama；生产场景推荐 vLLM
+
+---
+
+## Part 2：RAG 基础与三段式（15min）
+
+### Slide 18｜RAG 定义：检索 + 增强 + 生成
+
+**RAG = Retrieval-Augmented Generation**
+
+- **检索（Retrieve）**：从知识库查询相关内容
+- **增强（Enhance）**：把检索结果融入 Prompt，辅助模型生成
+- **生成（Generate）**：输出兼具准确性与透明度的答案
+
+```
+用户提问 → [检索知识库] → [拼进 Prompt] → [LLM 生成] → 带引用的回答
+```
+
+> 核心思想：生成前先查资料，让模型"开卷考试"
+
+---
+
+### Slide 19｜三种问答方案对比
+
+| 方案 | 原理 | 优势 | 劣势 |
 |---|---|---|---|
-| **顺序协作** | A → B → C 流水线 | 步骤明确的流程 | `A→B→C` |
-| **并行协作** | A 和 B 同时工作 | 独立子任务 | `A,B → 合并` |
-| **监督协作** | Manager 分配任务给 Worker | 复杂项目管理 | `Manager → W1,W2,W3` |
-| **辩论协作** | 多个 Agent 给出不同观点 | 需要多视角分析 | `A↔B↔C` |
+| **传统检索 QA** | 关键词匹配（TF-IDF/BM25） | 可靠、可溯源 | 死板、不理解语义 |
+| **纯 LLM** | 直接问模型 | 灵活、自然 | 幻觉、知识过期 |
+| **RAG** | 检索 + LLM 生成 | 准确、可溯源、灵活 | 系统复杂 |
 
-**LangGraph 的图结构**（概念）：
-
-```
-workflow = StateGraph(AgentState)
-workflow.add_node("researcher", researcher_agent)
-workflow.add_node("writer", writer_agent)
-workflow.add_node("reviewer", reviewer_agent)
-workflow.add_edge("researcher", "writer")    # 研究员 → 撰写员
-workflow.add_edge("writer", "reviewer")      # 撰写员 → 审核员
-```
-
-> 详见 notebook c41 的简化版多 Agent 示例
+**演示**：问"2024 年中国商业航天发射次数"
+- 传统检索：找不到（文档写"商业发射"，查询是"商业航天发射"）
+- 纯 LLM：幻觉乱答（"约 50 次"——错，实际 30 次）
+- RAG：基于报告回答"30 次，同比增加 50%"[OK]
 
 ---
 
-### Slide 30｜通信协议：为什么需要标准？  `[notebook c42]`
+### Slide 20｜RAG 完整工作流（两阶段）
 
-**没有标准协议的世界**：
-
-```
-Agent A 想调用天气 API     → 写一个 WeatherTool 类
-Agent A 想调用数据库       → 写一个 DatabaseTool 类
-Agent A 想调用 GitHub API  → 写一个 GitHubTool 类
-...
-每接入一个新服务，都要从头写适配器代码
-```
-
-**有了标准协议的世界**：
+**数据准备阶段**（离线一次）：
 
 ```
-Agent A 通过 MCP 协议 → 自动发现并调用任何 MCP 兼容的服务
-Agent B 通过 A2A 协议 → 直接与 Agent A 对话协作
-Agent C 通过 ANP 协议 → 在网络中发现需要的 Agent 服务
+文档(PDF/Word/...) → 分块 → 向量化 → 存入向量库
 ```
 
-> 类比：USB-C 统一了充电接口，HTTP 统一了网页通信，MCP/A2A/ANP 统一了 Agent 通信
+**查询应用阶段**（在线每次）：
+
+```
+用户提问 → 查询向量化 → 语义检索 top-k → 拼 Prompt → LLM 生成
+```
+
+```
+┌─────────────────────────────────────────────────┐
+│  离线：文档 → 分块 → 向量化 → 向量库              │
+│  在线：提问 → 向量化 → 检索 top-k → 拼 Prompt → 生成  │
+└─────────────────────────────────────────────────┘
+```
+
+> 关键：知识库建一次，查询每次跑
 
 ---
 
-### Slide 31｜三种协议对比  `[notebook c42]`
+### Slide 21｜RAG 三代演进
 
-| 维度 | MCP | A2A | ANP |
+| 代际 | 时间 | 检索方式 | 生成方式 | 痛点 |
+|---|---|---|---|---|
+| **Naive RAG** | 2020-2021 | TF-IDF/BM25 关键词 | 直接拼接 | 字面不匹配就漏 |
+| **Advanced RAG** | 2022-2023 | 稠密嵌入语义检索 | 查询重写 + 重排序 | 召回率仍不够 |
+| **Modular RAG** | 2023-至今 | 混合检索 + MQE + HyDE | CoT + 自我反思 | 模块组合复杂 |
+
+**演进逻辑**：每代解决上一代痛点
+- Naive → Advanced：从"字面匹配"到"语义理解"
+- Advanced → Modular：从"单次检索"到"多策略融合"
+
+---
+
+### Slide 22｜RAG vs 微调对比
+
+| 维度 | RAG | 微调 |
+|---|---|---|
+| 适合场景 | 知识常更新 / 长尾 / 需引用 | 风格 / 格式 / 特定任务 |
+| 知识更新 | 改知识库即可（秒级） | 需重新训练（小时级） |
+| 显存需求 | 推理即可 | 训练需大显存 |
+| 可解释性 | 高（有引用） | 低（黑盒） |
+| 成本 | 低 | 高 |
+
+**选型建议**：
+- 知识常变 → RAG（如新闻、政策、企业文档）
+- 风格固定 → 微调（如客服话术、代码风格）
+- 两者结合 → 先 RAG 注入知识，再微调改风格
+
+---
+
+## Part 3：RAG 流水线从零实现（37min · 核心）
+
+### Slide 24｜RAG 流水线六环节
+
+```
+1. 文档加载    PDF/Word/Excel → Markdown
+2. 文本分块    切成 500-1000 字符的小段
+3. 向量化      每段转成 384 维向量
+4. 向量库存储   存入 ChromaDB
+5. 语义检索    查询向量 → top-k 最相似段落
+6. Prompt 拼接  检索结果 + 问题 → LLM 生成
+```
+
+**本讲从零实现，不使用 LangChain/LlamaIndex 的 RAG 链**——每一步学生都能看懂、能改、能调试
+
+---
+
+### Slide 25｜环节1：文档加载与清洗
+
+**工具**：`markitdown`（微软开源，统一文档转换）
+
+```python
+from markitdown import MarkItDown
+
+md = MarkItDown()
+result = md.convert("航天产业报告.pdf")
+markdown_text = result.text_content
+print(len(markdown_text), "字符")
+```
+
+**支持格式**：PDF / Word / Excel / PPT / 图片(OCR) / 音频(转录) / CSV / JSON / HTML
+
+---
+
+### Slide 26｜环节2：为什么要分块？
+
+**原因1：嵌入模型输入长度限制**
+- `all-MiniLM-L6-v2` 最大输入 512 token
+- 一篇 2 万字报告远超限制
+
+**原因2：检索精度**
+- 整篇文档向量化 → 语义被稀释
+- 分块后每段聚焦一个主题，检索更准
+
+**原因3：Prompt 长度控制**
+- top-5 检索结果拼进 Prompt，每段 500 字 → 2500 字（可控）
+- 不分块直接塞整篇 → 超出上下文窗口
+
+```
+整篇文档(20000字) ──向量化──→ 1个向量（语义稀释）
+                ↓ 分块
+500字 × 40段 ──向量化──→ 40个向量（语义聚焦）
+```
+
+---
+
+### Slide 27｜分块策略1：固定字符分块
+
+```python
+def chunk_fixed(text, chunk_size=500, overlap=50):
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = start + chunk_size
+        chunks.append(text[start:end])
+        start = end - overlap  # 重叠窗口
+    return chunks
+```
+
+**优点**：简单
+**缺点**：可能切断语义（如把"2024年"切成"2024"和"年"）
+
+**重叠窗口（overlap）作用**：防止语义在边界断裂
+
+```
+块1: [...航天发射 30 次，同比]
+块2: [同比增加 50%...]
+         ↑ 重叠部分保证语义连续
+```
+
+---
+
+### Slide 28｜分块策略2：递归字符分块（推荐）
+
+**思路**：按分隔符优先级递归切分，保持段落完整
+
+```python
+def chunk_recursive(text, chunk_size=500, overlap=50):
+    separators = ["\n\n", "\n", "。", "；", "，", " "]
+    # 先按段落分（\n\n），段落太大再按行分（\n），再按句号分...
+    ...
+```
+
+**分隔符优先级**：`\n\n`（段落）→ `\n`（行）→ `。`（句）→ `；`（分句）→ `，`（逗号）→ ` `（空格）
+
+**优点**：保持语义完整，不会切断句子
+**LangChain 的 `RecursiveCharacterTextSplitter` 就是这个思路**
+
+---
+
+### Slide 29｜分块策略3：Token 分块
+
+**思路**：按 token 数切分，与嵌入模型对齐
+
+```python
+from transformers import AutoTokenizer
+
+tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
+
+def chunk_by_token(text, max_tokens=500, overlap=50):
+    tokens = tokenizer.encode(text)
+    chunks = []
+    for i in range(0, len(tokens), max_tokens - overlap):
+        chunk_tokens = tokens[i:i+max_tokens]
+        chunks.append(tokenizer.decode(chunk_tokens))
+    return chunks
+```
+
+**优点**：精确控制 token 数，不超嵌入模型限制
+**缺点**：需要 tokenizer，速度慢
+
+---
+
+### Slide 30｜chunk_size 调参经验
+
+| 场景 | chunk_size | overlap | 说明 |
 |---|---|---|---|
-| **全称** | Model Context Protocol | Agent-to-Agent Protocol | Agent Network Protocol |
-| **提出者** | Anthropic | Google | 开源社区 |
-| **解决什么** | Agent ↔ 工具通信 | Agent ↔ Agent 通信 | 大规模 Agent 网络 |
-| **类比** | USB-C 接口 | 对讲机 | 互联网路由 |
-| **成熟度** | 较成熟（1000+ Server） | 早期（有 SDK） | 概念阶段 |
-| **使用场景** | 接入外部服务 | 多 Agent 协作 | Agent 服务发现 |
+| **问答场景** | 500-800 字符 | 50-100 | 小块聚焦，检索准 |
+| **长文摘要** | 1000-1500 字符 | 100-200 | 大块保留上下文 |
+| **代码文档** | 按函数/类分 | 0 | 语义天然边界 |
+| **表格数据** | 按行分 | 0 | 保持行完整 |
 
-**三种协议的定位层次**：
-
-```
-        工具层           协作层           网络层
-    ┌──────────┐    ┌──────────┐    ┌──────────┐
-    │   MCP    │    │   A2A    │    │   ANP    │
-    │ Agent    │    │ Agent    │    │ Agent 发 │
-    │  ↕       │    │  ↔       │    │ 现与路由 │
-    │ Tool     │    │ Agent    │    │          │
-    └──────────┘    └──────────┘    └──────────┘
-    "USB-C接口"      "对讲机"       "互联网路由"
-```
-
-> 本课重点掌握 MCP（已落地，Proma 在用），A2A/ANP 了解原理即可
+**经验法则**：
+- overlap = chunk_size × 10-20%
+- 宁可小块多检索，不要大块塞满 Prompt
+- 用 Inline Edit 快速改 chunk_size 对比检索效果
 
 ---
 
-### Slide 32｜MCP 架构与实战  `[notebook c43]`
+### Slide 31｜环节3：向量化——句子嵌入
 
-**MCP = Model Context Protocol**（Anthropic 提出）
+**句子嵌入 vs 词嵌入**（第4讲已讲 token embedding）：
+- 词嵌入：每个词一个向量（如 "航天" → 768维）
+- 句子嵌入：整句话一个向量（如 "航天发射 30 次" → 384维）
 
-**三层架构**：
+**句子嵌入原理**（sentence-transformers）：
 
-| 层级 | 职责 | 示例 |
+```
+输入句子 → BERT 编码 → 每个token一个向量 → mean pooling → 1个句子向量
+```
+
+**模型选型**：
+
+| 模型 | 维度 | 大小 | 语言 | 备注 |
+|---|---|---|---|---|
+| `all-MiniLM-L6-v2` | 384 | 80MB | 英文为主 | 教学/原型推荐 |
+| `bge-large-zh` | 1024 | 1.3GB | 中文优秀 | 中文场景推荐 |
+| `bge-m3` | 1024 | 2.3GB | 多语言 | 生产场景 |
+
+---
+
+### Slide 32｜sentence-transformers 实操
+
+```python
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer('all-MiniLM-L6-v2')
+
+# 单句编码
+vec = model.encode("航天发射 30 次")
+print(vec.shape)  # (384,)
+
+# 批量编码
+sentences = ["航天发射 30 次", "商业航天井喷", "卫星互联网组网"]
+vectors = model.encode(sentences)
+print(vectors.shape)  # (3, 384)
+
+# 计算相似度
+from sentence_transformers import util
+sim = util.cos_sim(
+    model.encode("法国出口", normalize_embeddings=True),
+    model.encode("法兰西出口", normalize_embeddings=True)
+)
+print(sim)  # 0.85+ 语义相似
+```
+
+> "法国"≈"法兰西"——这是 RAG 能命中同义词的关键
+
+---
+
+### Slide 33｜环节4：ChromaDB 向量库
+
+**ChromaDB**：轻量级开源向量数据库，纯 Python，本地持久化
+
+**五要素**：
+
+| 概念 | 类比 SQL | 说明 |
 |---|---|---|
-| **Host（宿主）** | 管理对话流程 | Claude Desktop / **Proma** |
-| **Client（客户端）** | 与 Server 通信 | 内置在 Host 中 |
-| **Server（服务器）** | 提供具体工具能力 | 文件系统 / 数据库 / API |
+| collection | 表 | 一个知识库一个 collection |
+| id | 主键 | 每个 chunk 的唯一 ID |
+| document | 行内容 | chunk 原文 |
+| embedding | 索引 | chunk 的向量 |
+| metadata | 列字段 | 来源、页码、章节等 |
 
-**MCP 的核心价值**：
+```python
+import chromadb
 
+client = chromadb.PersistentClient(path="./chroma_db")
+collection = client.create_collection("aerospace_report")
+
+collection.add(
+    ids=["chunk_0", "chunk_1"],
+    documents=["航天发射 30 次...", "商业航天井喷..."],
+    embeddings=[[0.1, ...], [0.2, ...]],
+    metadatas=[{"page": 1}, {"page": 1}]
+)
 ```
-传统方式（硬编码）:
-  Agent ──自定义代码──→ 天气 API
-  Agent ──自定义代码──→ 数据库
-
-MCP 方式（标准化）:
-  Agent ──MCP Client──→ MCP Server（天气）
-  Agent ──MCP Client──→ MCP Server（数据库）
-  Agent ──MCP Client──→ MCP Server（GitHub）
-```
-
-**本课程的 MCP 实践**：
-- Proma 工作区配置 `mcp.json` → 自动发现 MCP Server
-- 课程已用：nowledge-mem、notion、scansci-pdf、tavily
-- 详见 notebook c43 的概念演示
 
 ---
 
-## Part 5：Skill + 课程总结 `[notebook c44-c47]`
+### Slide 34｜环节5：语义检索
 
-### Slide 33｜什么是 Skill？  `[notebook c45]`
+```python
+# 查询向量化
+query_vec = model.encode("2024 年商业航天发射多少次")
 
-**Skill = 可复用的 Agent 能力单元**
+# 检索 top-5
+results = collection.query(
+    query_embeddings=[query_vec],
+    n_results=5,
+    include=["documents", "metadatas", "distances"]
+)
+
+for i, (doc, meta, dist) in enumerate(zip(
+    results['documents'][0],
+    results['metadatas'][0],
+    results['distances'][0]
+)):
+    print(f"[{i+1}] dist={dist:.3f} page={meta['page']}")
+    print(doc[:100])
+```
+
+**相似度度量**：余弦相似度（默认）/ 欧氏距离
+**score_threshold**：过滤 distance > 1.0 的不相关结果
+
+---
+
+### Slide 35｜环节6：Prompt 拼接与生成
+
+**Prompt 模板**：
+
+```python
+PROMPT_TEMPLATE = """你是文档问答助手，只根据以下参考资料回答问题。
+如果资料中没有答案，请说"资料中未提及"。
+
+参考资料：
+{context}
+
+问题：{question}
+
+回答（请用 [1][2] 标注引用来源）：
+"""
+
+def generate(question, retrieved_chunks):
+    context = "\n\n".join(
+        f"[{i+1}] {chunk}" for i, chunk in enumerate(retrieved_chunks)
+    )
+    prompt = PROMPT_TEMPLATE.format(context=context, question=question)
+    
+    response = client.chat.completions.create(
+        model="qwen2.5:7b-instruct-q4_K_M",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+```
+
+> 防幻觉关键：明确"如果资料里没有，就说资料中未提及"
+
+---
+
+### Slide 36｜完整 RAG 流水线串起来
+
+```python
+def rag_pipeline(question, top_k=5):
+    # 1. 查询向量化
+    query_vec = model.encode(question)
+    
+    # 2. 语义检索
+    results = collection.query(
+        query_embeddings=[query_vec],
+        n_results=top_k
+    )
+    retrieved_chunks = results['documents'][0]
+    
+    # 3. 拼 Prompt
+    context = "\n\n".join(f"[{i+1}] {c}" for i, c in enumerate(retrieved_chunks))
+    prompt = PROMPT_TEMPLATE.format(context=context, question=question)
+    
+    # 4. LLM 生成
+    response = client.chat.completions.create(
+        model="qwen2.5:7b-instruct-q4_K_M",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content, retrieved_chunks
+
+# 一行调用
+answer, sources = rag_pipeline("2024 年中国商业航天发射多少次？")
+```
+
+---
+
+### Slide 37｜RAG 流水线效果演示
+
+**问**："2024 年中国商业航天发射次数同比变化？"
 
 ```
-Skill = Prompt 模板 + 工具集 + 行为约束 + 输出格式
+检索 top-5:
+[1] (dist=0.23) 2024 年商业航天发射次数有望达 30 次，同比增加 50%
+[2] (dist=0.31) 海南商业航天发射场 1 号工位 6 月底具备发射能力
+[3] (dist=0.42) 长征十二号火箭 24 年首飞，3.8 米直径
+[4] (dist=0.48) 卫星互联网组网加速，千帆星座首发
+[5] (dist=0.55) 商业航天产业链聚集格局初显
+
+LLM 回答：
+根据资料，2024 年中国商业航天发射次数预计达 30 次，
+同比 2023 年的 20 次增加 50% [1]。主要得益于海南商业
+航天发射场投入使用 [2] 和长征十二号等新型火箭首飞 [3]。
 ```
 
-| 组成 | 说明 | 示例 |
+> 注意引用标注 [1][2][3]——RAG 的可解释性
+
+---
+
+## Part 4：高级检索策略 + Agent 记忆概览（12min）
+
+### Slide 39｜高级检索：痛点与三策略
+
+**痛点**：
+1. **用词不匹配**：用户问"法国出口额"，文档写"法兰西出口"
+2. **查询-文档语义鸿沟**：问题是疑问句，文档是陈述句，语义空间不同
+3. **lost in the middle**：LLM 对 top-k 中间位置内容关注度不够
+
+**三策略对比**：
+
+| 策略 | 思想 | 适合场景 |
 |---|---|---|
-| **Prompt 模板** | 定义角色和任务 | "你是航天产业分析师..." |
-| **工具集** | 可用的工具列表 | [rag_search, calculator] |
-| **行为约束** | 做什么、不做什么 | "必须基于报告数据，不可编造" |
-| **输出格式** | 回答的结构要求 | "使用中文，包含数据来源" |
+| **MQE 多查询扩展** | LLM 改写 N 个等价查询，并行检索合并 | 用词多样性场景 |
+| **HyDE 假设文档嵌入** | LLM 先生成假设答案，用答案向量检索 | 术语密集专业领域 |
+| **Reranker 重排序** | 向量检索粗排 top-10 → Cross-Encoder 精排 top-3 | 对精度要求高 |
 
-**Skill 解决了什么问题？**
-- 不同用户面对同一 Agent，可以给它不同的 Skill 来适应不同场景
-- 一个 Agent + 多个 Skill = 一个多面手助手
-- Skill 可以分享、复用、版本管理
+**HyDE 为什么有效**：问题是疑问句，文档是陈述句 → 语义空间不同；假设答案也是陈述句 → 更接近真实文档
+
+> Reranker 用 `BAAI/bge-reranker-base`；Bi-Encoder 粗排快，Cross-Encoder 精排准
 
 ---
 
-### Slide 34｜Skill 的结构（写法概览）  `[notebook c46]`
+### Slide 40｜RAG 评估指标
 
-**一个 Skill 的四段结构**：
+**如何量化检索质量？**
 
-```
-┌─────────────────────────────────────┐
-│ 1. 身份定义（name + description）    │
-│    "我是谁，我能做什么"              │
-├─────────────────────────────────────┤
-│ 2. System Prompt（角色 + 流程）      │
-│    "我该怎么工作"                    │
-│    - 工作流程步骤                    │
-│    - 行为约束规则                    │
-├─────────────────────────────────────┤
-│ 3. 工具集（tools）                   │
-│    "我能用什么"                      │
-│    - rag_search, calculator          │
-├─────────────────────────────────────┤
-│ 4. 输出格式（output_format）         │
-│    "我的产出长什么样"                │
-│    - 分析结论 / 数据依据 / 来源      │
-└─────────────────────────────────────┘
-```
+| 指标 | 定义 | 用途 |
+|---|---|---|
+| **Recall@k** | top-k 结果中包含正确答案的比例 | 召回率（找全了吗） |
+| **Precision@k** | top-k 结果中相关的比例 | 精确率（找得准吗） |
+| **MRR** | 第一个相关结果的平均倒数排名 | 排序质量 |
 
-> 详见 notebook c46 的 Python 字典实现示例
+**示例**：
+- 正确答案在 top-5 的第 3 位 → Recall@5=1, Precision@5=0.2, MRR=1/3
+- 正确答案不在 top-5 → Recall@5=0, MRR=0
 
 ---
 
-### Slide 36｜课程完整闭环
+### Slide 41｜Agent 记忆系统
 
-```
-第1讲                第2讲                第3讲
-数据处理 ──────→ 机器学习 ──────→ NLP 基础
-Pandas             Scikit-learn        API + Prompt
-Vibe Coding 入门   Spec-driven         上下文工程
+**为什么 Agent 需要 Memory？**
+- LLM 无状态：重启就忘了"我叫张三"
+- 上下文窗口有限：长对话早期信息被挤出
 
-                                          │
-                                          ▼
-第6讲                第5讲                第4讲
-Agent 系统 ◄────── 部署 + RAG ◄────── NLP 进阶
-LangChain Agent    Ollama + ChromaDB    BERT + LoRA
-Skills + MCP       Spec-driven 部署     HuggingFace
-```
+**四类型记忆**：
 
-**你学会了什么？**
-- 会用 Python 处理数据和训练模型
-- 会调用和微调大语言模型
-- 会部署模型并搭建 RAG 系统
-- 会开发完整的 AI Agent 应用
-- 会用 Vibe Coding 工具链高效协作
+| 类型 | 存什么 | 生命周期 | 类比 |
+|---|---|---|---|
+| **工作记忆** | 当前对话上下文 | 会话级，TTL 清理 | "现在在聊什么" |
+| **情景记忆** | 具体交互事件 | 长期持久化 | "上周问过 X" |
+| **语义记忆** | 抽象知识/用户偏好 | 长期持久化 | "用户偏好 Python" |
+| **感知记忆** | 多模态信息 | 动态管理 | "用户上传的图" |
+
+**Memory 与 RAG 的关系**：
+- RAG 检索**外部静态知识**（文档）
+- Memory 检索**内部动态交互**（对话历史）
+- 两者结合：用户提问 → 检索 Memory（找偏好）+ 检索 RAG（找知识）→ 拼 Prompt → 生成 → 存入 Memory
 
 ---
 
 ## 收尾
 
-### Slide 37｜Agent 能力边界与安全意识
+### Slide 42｜知识点速查 + 实验五说明 + Q&A
 
-**Agent 不是万能的，需要注意**：
+**知识点速查表**：
 
-| 风险 | 说明 | 防护 |
-|---|---|---|
-| **幻觉** | Agent 可能编造工具不存在的结果 | 工具结果必须来自真实执行 |
-| **无限循环** | Agent 可能在同一步骤反复尝试 | 设置 `max_iterations` |
-| **工具误用** | Agent 可能调用错误的工具 | 写清楚工具描述和边界 |
-| **越权行动** | Agent 可能执行超出预期的操作 | Speckit 约束 + 工具白名单 |
-| **上下文丢失** | 长对话中 Agent 忘记早期信息 | 记忆管理 + 摘要压缩 |
-
-**安全准则**：
-1. Agent 能调用的工具必须是**白名单制**
-2. 高风险操作（删除、发送、支付）需要**人工确认**
-3. 始终设置**最大迭代次数**防止失控
-4. 生产环境 Agent 必须有**日志和审计**
-
----
-
-### Slide 38｜知识点速查 + 实验六说明 + 课程寄语
-
-**核心概念速查表**：
-
-| 概念 | 一句话解释 |
+| 模块 | 核心知识点 |
 |---|---|
-| Agent | 感知 → 决策 → 行动 → 观察的闭环系统 |
-| ReAct | Thought-Action-Observation 的推理-行动循环 |
-| Function Calling | LLM 返回"调哪个工具 + 什么参数"的 JSON |
-| Tool Description | 写给 LLM 看的工具使用说明，决定调用准确率 |
-| MCP | Agent ↔ Tool 的标准通信协议（USB-C） |
-| Skill | Prompt + 工具 + 约束 = 可复用的 Agent 能力单元 |
+| 部署 | Ollama 一键起服务 / 量化 Q4_K_M / vLLM PagedAttention + 连续批处理 |
+| RAG 三段式 | 检索 Retrieve → 增强 Enhance → 生成 Generate |
+| RAG 三代 | Naive(关键词) → Advanced(语义) → Modular(混合) |
+| 分块三策略 | 固定字符 / 递归字符（推荐）/ Token |
+| 嵌入模型 | all-MiniLM-L6-v2 (384维) / bge-large-zh (中文) |
+| 向量库 | ChromaDB 五要素：collection/id/document/embedding/metadata |
+| 高级检索 | MQE 多查询扩展 / HyDE 假设文档 / Reranker 重排序 |
+| 评估指标 | Recall@k / Precision@k / MRR |
+| 记忆四类型 | 工作 / 情景 / 语义 / 感知 |
 
-**实验六**（课程最终实验）：
-- 基于航天产业报告构建智能问答 Agent
-- 5 个任务：RAG 工具封装 / ReAct Agent / 多轮记忆 / Gradio 界面 / 行为分析
-- 满分 100 分，综合运用第1-6讲所学
+**实验五说明**：
+- 数据：`综述论文.pdf`（ACM TOSEM 2025，"LLM for Mobile: An Initial Roadmap"，29页英文综述）
+- 4 任务：文档加载分块 → 向量化存储 → 检索生成 → 高级检索对比
+- 注意：英文长文档，需考虑英文分块策略和跨语言查询
 
-**课程寄语**：
+**工具速查表**：
 
-> 六讲之前：你是一个 Python 初学者
-> 六讲之后：你能开发完整的 AI Agent 应用
->
-> Vibe Coding 告诉你：未来的开发者不是被 AI 替代的人，
-> 而是善于与 AI 协作的人。
->
-> **Keep coding, keep vibing!**
+| 工具 | 用途 | 核心命令/API |
+|---|---|---|
+| Ollama | 本地部署 LLM | `ollama serve` / `ollama pull` |
+| vLLM | 生产级推理 | `vllm serve` |
+| markitdown | 文档转 Markdown | `MarkItDown().convert()` |
+| sentence-transformers | 句子嵌入 | `SentenceTransformer().encode()` |
+| ChromaDB | 向量数据库 | `collection.add()` / `collection.query()` |
+| bge-reranker | 重排序 | Cross-Encoder 编码 |
+| Spec-driven | 部署规约 | `@deploy_speckit.md` |
 
+**Q&A**

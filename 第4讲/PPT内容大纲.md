@@ -1,907 +1,841 @@
-# 第四讲：NLP 进阶与模型微调
+# 第三讲：NLP 基础与 Prompt 工程
 
-## PPT 内容大纲（约 46 张 Slides）
+## PPT 内容大纲（约 52 张 Slides）
 
 ---
 
 ### Slide 1｜封面
 
-**标题**：Python 进阶 · 第 4 讲
-**副标题**：NLP 进阶与模型微调——从黑盒调用到白盒定制
+**标题**：Python 进阶 · 第 3 讲
+**副标题**：NLP 基础与 Prompt 工程
 **教师**：孙青 / 欧阳元新 · 计算机学院
 **平台**：CloudStudio + CodeBuddy
 
----
+### Slide 3｜导入：你一直在和大模型对话
 
-### Slide 2｜本讲全景导航
+**回顾前两讲经验：**
 
-**两条主线同步推进：**
+- 第1讲：在 CloudStudio 里写了两段式 Prompt 驱动 AI 生成 Pandas 代码
+- 第2讲：用 Speckit 描述建模需求，AI 自动选择 sklearn 算法
 
-| 知识线                       | 工具线                          |
-| --------------------------- | ------------------------------ |
-| 语言模型演进（N-gram → Transformer） | Spec-driven：用 Speckit 描述微调任务 |
-| 三种预训练架构（BERT/GPT/T5）     | CodeBuddy 生成训练代码             |
-| Hugging Face 微调实战          | Inline Edit 调整超参数             |
-| LoRA 参数高效微调               | Rules 定义项目规范 + 斜杠指令调试       |
+**问题**：你知道 AI 是如何理解这些 Prompt 的吗？
 
----
+**三个真实疑问引入本讲：**
 
-### Slide 3｜从第3讲到第4讲：从调用者到理解者
-
-| 第3讲：NLP 基础与 Prompt 工程 | 第4讲：NLP 进阶与模型微调       |
-| ----------------------- | ----------------------- |
-| 调用大模型 API              | 理解模型内部架构                |
-| 设计 Prompt 让模型回答更好       | 用自己的数据让模型表现更好           |
-| 把模型当黑盒                  | 打开黑盒，看 Q/K/V 怎么流动        |
-| 工具：Prompt、Few-shot、CoT  | 工具：Transformers、PEFT、Trainer |
-
-**核心问题驱动**：「我们已经能调用大模型了，但模型内部是什么？能否让它在我们的数据上表现更好？」
+1. 为什么同样的 Prompt，AI 有时给出不同答案？（采样参数）
+2. AI 是怎么理解文字的？"你好"对它来说是什么？（Tokenization）
+3. 怎么让 AI 稳定地按我想要的格式输出？（Prompt Engineering）
 
 ---
 
-### Slide 4｜本讲知识地图
+### Slide 4｜本讲的价值定位
 
-```
-语言模型演进
-   └─ N-gram → RNN/LSTM → Transformer
-                              │
-                   ┌──────────┼──────────┐
-                   │          │          │
-                BERT        GPT        T5
-              (Encoder)  (Decoder)  (Enc-Dec)
-              双向理解      自回归生成   文本到文本
-                   │
-          ┌────────┴────────┐
-          │                 │
-       全参数微调           LoRA 微调
-       (更新所有参数)      (只训练少量参数)
-          │                 │
-       Hugging Face        peft 库
-       Transformers
+**从"使用者"到"工程师"的转变：**
+
+```text
+第1-2讲：使用 AI 工具完成数据分析和建模任务
+第3讲：  理解 AI 背后的原理，系统化地设计 Prompt
 ```
 
----
+**本讲的核心收获：**
 
-### Slide 5｜语言模型的核心任务
-
-**语言模型 (Language Model, LM)**：计算一个词序列出现的概率
-
-$$P(S) = P(w_1) \cdot P(w_2|w_1) \cdot P(w_3|w_1,w_2) \cdots P(w_m|w_1,\dots,w_{m-1})$$
-
-**演进脉络**：
-
-| 阶段          | 代表方法              | 核心思想                | 局限            |
-| ----------- | ----------------- | ------------------- | ------------- |
-| 统计语言模型      | N-gram            | 马尔可夫假设，看前 n-1 个词     | 稀疏性 + 泛化差     |
-| 神经网络语言模型    | Word2Vec / NNLM   | 词嵌入，连续向量表示           | 固定窗口          |
-| 循环神经网络      | RNN / LSTM        | 引入"记忆"，处理变长序列        | 无法并行 + 长距依赖弱  |
-| **Transformer** | **Attention**     | **完全并行，全局注意力**       | **计算量随长度平方增长** |
+- 会用 tiktoken 控制上下文预算，不再被 Token 限制卡住
+- 能设计有效的 System Prompt，让 API 稳定输出结构化结果
+- 理解幻觉成因，建立正确的 AI 使用心态
 
 ---
 
-### Slide 6｜N-gram 的两大致命缺陷
+### Slide 5｜语言模型是什么
 
-**缺陷一：数据稀疏性 (Sparsity)**
+**语言模型（Language Model）的根本任务：计算一个句子出现的概率**
 
-如果 "robot learns" 在语料库中从未出现过，N-gram 计算出的概率就是 0：
+$$P(S) = P(w_1) \cdot P(w_2|w_1) \cdot P(w_3|w_1,w_2) \cdots P(w_m|w_1,...,w_{m-1})$$
+
+**类比**：语言模型就是在玩"文字接龙"——给定前文，预测下一个最可能的词。
+
+**演进路线**：
+
+| 阶段     | 模型              | 特点             | 缺陷          |
+| ------ | --------------- | -------------- | ----------- |
+| 统计时代   | N-gram          | 简单计数，看前 N-1 个词 | 无法处理未见过的词组合 |
+| 神经网络   | RNN/LSTM        | 有"记忆"，可处理变长序列  | 顺序计算慢，长距离遗忘 |
+| **当代** | **Transformer** | 注意力机制，完全并行     | 计算量大，需海量数据  |
+
+今天使用的 ChatGPT、DeepSeek、Qwen 全部基于 Transformer 的 Decoder-Only 架构。
+
+---
+
+### Slide 6｜Transformer 架构核心思想（概览）
+
+**自注意力机制（Self-Attention）**：处理每个词时，能"看到"整个句子的其他词
+
+$$\text{Attention}(Q,K,V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$$
+
+**类比**：读到"它"这个字时，大脑会自动回溯找到"它"指代的那个名词
+
+**Decoder-Only 架构**（GPT 系列采用）：
+
+- 只保留解码器，专注"预测下一个词"
+- 因果掩码：只能看到当前位置之前的词，不能偷看后面
+- 自回归生成：一个词一个词地往后写
+
+> 本讲只做概念性介绍，Transformer 细节将在第四讲深入展开。
+
+---
+
+### Slide 7｜为什么需要分词（Tokenization）
+
+**问题**：计算机只认识数字，如何让模型"看懂"文字？
+
+**分词 = 将文本转换为模型可处理的数字序列**
+
+三种分词策略对比：
+
+| 方案          | 示例                     | 优点        | 缺点          |
+| ----------- | ---------------------- | --------- | ----------- |
+| 按词分         | ["Hello", "world"]     | 直观        | 词表爆炸、无法处理新词 |
+| 按字符分        | ["H","e","l","l","o"]  | 词表小       | 单字符无语义、序列太长 |
+| **子词分（主流）** | ["Hello", "wor", "ld"] | 平衡词表大小和语义 | 需要算法设计      |
+
+现代大模型（GPT、DeepSeek、Qwen）统一采用**子词分词**。
+
+---
+
+### Slide 8｜BPE 算法：子词分词的核心
+
+**BPE（Byte-Pair Encoding）= 贪心合并最高频相邻对**
+
+训练过程（迷你语料：`{"hug":1, "pug":1, "pun":1, "bun":1}`）：
+
+| 步骤  | 词表                | 最高频对     | 合并结果                     |
+| --- | ----------------- | -------- | ------------------------ |
+| 初始  | {h,u,g,p,n,b} (6) | —        | —                        |
+| 1   | +ug (7)           | u+g→ug   | h ug, p ug, p u n, b u n |
+| 2   | +un (8)           | u+n→un   | h ug, p ug, p un, b un   |
+| 3   | +hug (9)          | h+ug→hug | hug, p ug, p un, b un    |
+| 4   | +pug (10)         | p+ug→pug | hug, pug, p un, b un     |
+
+对未见过的词 "bug"：查找 → b + ug → `['b', 'ug']`
+
+---
+
+### Slide 9｜BPE 算法 Python 实现
 
 ```python
-# Bigram 示例
-P(learns|robot) = Count("robot learns") / Count("robot")
-                = 0 / 1 = 0   # 完全没见过 → 概率为 0
+def train_bpe(corpus, num_merges):
+    """BPE 训练：迭代合并最高频相邻 token 对"""
+    # 初始化：每个词拆成字符列表
+    vocab = {word: list(word) for word in corpus}
+    merges = []
+
+    for step in range(num_merges):   # 外层用 step，避免与内层 i 冲突
+        # 统计所有相邻 token 对的频率
+        pairs = {}
+        for word, freq in corpus.items():
+            tokens = vocab[word]
+            for j in range(len(tokens) - 1):
+                pair = (tokens[j], tokens[j+1])
+                pairs[pair] = pairs.get(pair, 0) + freq
+
+        if not pairs:
+            break
+        # 找到频率最高的 pair 并合并
+        best_pair = max(pairs, key=pairs.get)
+        new_token = best_pair[0] + best_pair[1]
+        merges.append(best_pair)
+
+        # 在所有词中执行合并
+        for word in vocab:
+            tokens = vocab[word]
+            new_tokens = []
+            i = 0
+            while i < len(tokens):
+                if i < len(tokens)-1 and (tokens[i], tokens[i+1]) == best_pair:
+                    new_tokens.append(new_token)
+                    i += 2
+                else:
+                    new_tokens.append(tokens[i])
+                    i += 1
+            vocab[word] = new_tokens
+
+        print(f"步骤 {step+1}: 合并 {best_pair} → '{new_token}'")
+
+    return merges, vocab
 ```
-
-**缺陷二：泛化能力差**
-
-模型不理解 `agent` 和 `robot` 在语义上相似——它把每个词当作孤立的离散符号。
-
-**根本原因**：词被表示为离散的 one-hot 向量，无法捕捉语义相似性。
 
 ---
 
-### Slide 7｜词嵌入：从离散符号到连续语义空间
-
-**核心思想**：把每个词映射为高维连续向量（词嵌入 Word Embedding）
+### Slide 10｜tiktoken 实操：Token 计算
 
 ```python
-# 经典语义类比：King - Man + Woman ≈ Queen
-import numpy as np
+import tiktoken
 
-embeddings = {
-    "king":   np.array([0.9, 0.8]),
-    "queen":  np.array([0.9, 0.2]),
-    "man":    np.array([0.7, 0.9]),
-    "woman":  np.array([0.7, 0.3])
+# 加载 GPT-4 使用的分词器
+enc = tiktoken.encoding_for_model("gpt-4")
+
+# 中英文 Token 计算对比
+text_en = "Hello, how are you?"
+text_zh = "你好，最近怎么样？"
+
+tokens_en = enc.encode(text_en)
+tokens_zh = enc.encode(text_zh)
+
+print(f"英文: {len(tokens_en)} tokens → {tokens_en}")
+print(f"中文: {len(tokens_zh)} tokens → {tokens_zh}")
+
+# 解码验证
+for t in tokens_zh:
+    print(f"  Token {t} → '{enc.decode([t])}'")
+```
+
+**关键发现**：中文通常 1 个汉字 = 1-2 个 Token；英文 1 个词 ≈ 1-3 个 Token
+
+---
+
+### Slide 11｜Token 对开发者的实际意义
+
+**三个直接影响：**
+
+| 维度            | 影响             | 实际场景                              |
+| ------------- | -------------- | --------------------------------- |
+| **上下文窗口**     | 模型能"看到"的最大范围   | GPT-5.5: 1M tokens ≈ 75万字中文      |
+| **计费**        | API 按 Token 计费 | DeepSeek-V4-Flash: ¥1/百万 input tokens |
+| **Prompt 长度** | 决定你能给模型多少信息    | 长文档需要截断或分块处理                      |
+
+**实用技巧**：
+
+- 用 tiktoken 预估成本：`tokens × 单价`
+- 中文 Prompt 比等长英文更"贵"（Token 数更多）
+- 上下文预算分配：System Prompt 占 10-20%，用户输入占 30-40%，预留生成空间
+
+---
+
+### Slide 12｜采样参数：Temperature
+
+**Temperature = 控制输出的"随机性"**
+
+原理：在 Softmax 中引入温度系数 T
+
+$$p_i^{(T)} = \frac{e^{z_i/T}}{\sum_{j=1}^k e^{z_j/T}}$$
+
+| Temperature   | 效果        | 适用场景           |
+| ------------- | --------- | -------------- |
+| 0 ~ 0.3（低温）   | 确定性高，重复率高 | 代码生成、事实问答、数据提取 |
+| 0.3 ~ 0.7（中温） | 平衡自然      | 日常对话、邮件撰写      |
+| 0.7 ~ 2.0（高温） | 创意发散      | 诗歌创作、头脑风暴      |
+
+**Temperature=0**：始终选概率最高的 Token，输出完全确定
+
+---
+
+### Slide 13｜采样参数：Top-k 与 Top-p
+
+**Top-k**：只从概率最高的 k 个词中采样
+
+- k=1：等同于贪心解码，完全确定
+- k=50：从前50个候选词中随机选
+
+**Top-p（核采样）**：累积概率达到 p 就停止
+
+- p=0.9：保留累积概率达到90%的最小词集合
+- 动态调整候选数量（概率集中时候选少，分散时候选多）
+
+**组合使用优先级**：Temperature → Top-k → Top-p
+
+```python
+response = client.chat.completions.create(
+    model="Qwen/Qwen3-8B",
+    messages=messages,
+    temperature=0.7,   # 中等随机
+    top_p=0.9,         # 核采样
+    max_tokens=500     # 最大生成长度
+)
+```
+
+---
+
+### Slide 14｜采样参数对比实验（现场演示）
+
+**同一 Prompt，不同参数效果对比：**
+
+Prompt：`"写一句关于春天的诗"`
+
+| 参数组合             | 输出示例      | 特点          |
+| ---------------- | --------- | ----------- |
+| T=0              | "春风又绿江南岸" | 每次都一样，最"安全" |
+| T=0.7, top_p=0.9 | "柳絮飘飞入画廊" | 自然多样        |
+| T=1.5            | "紫云翻涌鲤跃荷" | 有创意但可能不通顺   |
+
+
+---
+
+### Slide 15｜Prompt Engineering：为什么重要
+
+**Prompt = 与大模型沟通的"编程语言"**
+
+| 传统编程             | Prompt Engineering |
+| ---------------- | ------------------ |
+| 写 Python/Java 代码 | 写自然语言指令            |
+| 编译器执行            | 大模型执行              |
+| 语法错误会报错          | 表达不清会得到错误输出        |
+| 确定性结果            | 概率性结果（需要约束）        |
+
+**Prompt Engineering 的目标**：用最少的 Token、最清晰的表达，让模型稳定输出你想要的结果。
+
+**与前两讲的关系**：
+
+- 第1讲的"两段式 Prompt"（先氛围后约束）是 PE 的一种简单形式
+- 本讲将它升级为完整的方法论体系
+
+---
+
+### Slide 16｜Zero-shot / One-shot / Few-shot
+
+**根据提供示例数量分类：**
+
+**Zero-shot（零样本）**——直接下指令：
+
+```
+判断以下文本的情感倾向（正面/负面/中性）：
+文本：北航计算机学院的 Python 进阶课程内容很扎实！
+情感：
+```
+
+**One-shot（单样本）**——给一个示例：
+
+```
+文本：这家餐厅的服务太慢了。
+情感：负面
+
+文本：北航计算机学院的 Python 进阶课程内容很扎实！
+情感：
+```
+
+**Few-shot（少样本）**——给多个示例：
+
+```
+文本：这家餐厅的服务太慢了。 → 负面
+文本：今天天气不错，心情很好。 → 正面
+文本：快递已送达。 → 中性
+
+文本：北航计算机学院的 Python 进阶课程内容很扎实！ → 
+```
+
+示例越多，模型对任务边界理解越准确。
+
+---
+
+### Slide 17｜角色扮演（Role Prompting）
+
+**通过赋予模型角色，控制回答风格、知识范围和语气**
+
+```python
+messages = [
+    {"role": "system", "content": 
+     "你是一位资深 Python 数据分析专家，拥有10年经验。"
+     "回答时使用中文，给出代码示例，并解释背后的设计考量。"},
+    {"role": "user", "content": "如何高效处理百万行 CSV？"}
+]
+```
+
+**System Prompt 设计三要素**：
+
+| 要素   | 示例                | 作用     |
+| ---- | ----------------- | ------ |
+| 身份定义 | "你是资深 Python 专家"  | 激活相关知识 |
+| 行为约束 | "回答用中文，附代码"       | 控制输出格式 |
+| 边界限制 | "只回答 Python 相关问题" | 防止跑题   |
+
+
+---
+
+### Slide 18｜思维链（Chain-of-Thought, CoT）
+
+**核心思想：引导模型"一步一步地思考"**
+
+**不用 CoT（直接回答，容易出错）**：
+
+```
+问：一个篮球队80场赢了60%，接下来15场赢了12场，两赛季总胜率？
+答：63%（错误）
+```
+
+**使用 CoT（加一句引导语）**：
+
+```
+问：... 请一步一步地思考。
+答：
+第一步：第一赛季胜场 = 80 × 60% = 48场
+第二步：总比赛数 = 80 + 15 = 95场
+第三步：总胜利 = 48 + 12 = 60场
+第四步：总胜率 = 60/95 ≈ 63.16%
+```
+
+**CoT 适用场景决策**：
+
+| 任务类型    | 推荐策略                 |
+| ------- | -------------------- |
+| 简单分类/提取 | Zero-shot 或 Few-shot |
+| 需要推理/计算 | CoT（"请逐步思考"）         |
+| 格式严格    | 结构化输出                |
+| 复杂多步骤   | CoT + Few-shot       |
+
+---
+
+### Slide 19｜结构化输出
+
+**让模型按指定格式返回结果，便于程序解析**
+
+```
+请从以下产品评论中提取信息，严格按 JSON 格式输出：
+
+评论：这款"星尘"笔记本电脑屏幕效果惊人，但键盘手感不太好。
+
+输出格式：
+{
+  "product_name": "产品名称",
+  "sentiment": "正面/负面/混合",
+  "pros": ["优点列表"],
+  "cons": ["缺点列表"]
 }
-
-result = embeddings["king"] - embeddings["man"] + embeddings["woman"]
-# result = [0.9, 0.2] → 与 queen 完全一致
 ```
 
-**余弦相似度**衡量语义接近程度：
+**关键技巧**：
 
-$$\text{similarity}(\vec{a}, \vec{b}) = \cos(\theta) = \frac{\vec{a} \cdot \vec{b}}{|\vec{a}||\vec{b}|}$$
+- 明确给出 JSON/XML/表格等目标格式
+- 提供一个完整示例
+- 加约束："严格按照上述格式，不要添加额外内容"
 
-语义相近的词 → 向量夹角小 → 余弦值接近 1。
-
----
-
-### Slide 8｜RNN/LSTM：引入"记忆"但无法并行
-
-**RNN 核心思想**：用隐藏状态 $h_t$ 作为"短期记忆"，结合当前输入 $x_t$ 和上一刻记忆 $h_{t-1}$ 生成新记忆：
-
-$$h_t = f(h_{t-1}, x_t)$$
-
-**LSTM 创新**：引入细胞状态 + 门控机制（遗忘门/输入门/输出门），缓解梯度消失。
-
-**致命瓶颈**：必须按顺序计算，第 t 步等第 t-1 步完成才能开始 → **无法并行**，训练慢。
-
-```
-RNN 时序：[x1] → [x2] → [x3] → ... → [xm]   串行
-Transformer: [x1, x2, x3, ..., xm] 一次性全部处理   并行
-```
+**工具线衔接**：结构化输出 = 让 AI 的结果可以被代码直接 `json.loads()` 解析
 
 ---
 
-### Slide 9｜Transformer 的革命（2017）
+### Slide 20｜Prompt Engineering 策略选择决策树
 
-**论文**：Vaswani et al. "Attention Is All You Need" (2017)
-
-**革命性主张**：完全抛弃循环结构，**只用注意力机制**捕捉序列内的依赖关系。
-
-| 对比项         | RNN/LSTM        | Transformer        |
-| ----------- | --------------- | ------------------ |
-| 计算方式        | 顺序计算            | 并行计算               |
-| 长距离依赖       | 弱（梯度消失）         | 强（一步直达）            |
-| 训练速度        | 慢               | 快（GPU 友好）          |
-| 复杂度（序列长度）   | O(n)            | O(n²)              |
-
-**代价**：序列长度增加时，注意力复杂度是平方级 O(n²)——这是后续 Longformer、Linformer 等改进的动机。
-
----
-
-### Slide 10｜Encoder-Decoder 整体结构
-
-**最初的 Transformer 为机器翻译设计**：
-
-```
-输入句子 → [Encoder × N] → 上下文向量 → [Decoder × N] → 输出句子
-            "理解"                       "生成"
+```text
+你的任务是什么？
+├── 简单分类/判断 → Zero-shot（直接问）
+├── 需要特定输出风格 → Few-shot（给示例）
+├── 需要推理/计算 → CoT（"请逐步思考"）
+├── 需要稳定格式 → 结构化输出（给 JSON 模板）
+├── 复杂多步骤任务 → CoT + Few-shot + System Prompt
+└── 不确定 → 先试 Zero-shot，效果不好再升级
 ```
 
-| 组件                | 职责                       | 类比         |
-| ----------------- | ------------------------ | ---------- |
-| **编码器 (Encoder)** | 读取整个输入句子，为每个词生成富含上下文的向量 | "通读全文做笔记"  |
-| **解码器 (Decoder)** | 参考已生成的前文 + 编码器的笔记，生成下一个词 | "看着笔记写作文"  |
+**迭代原则**：从最简单的策略开始，根据效果逐步加码
 
-每个 Encoder/Decoder 层内部都包含：多头注意力 + 前馈网络 + 残差连接 + 层归一化。
+**与 Vibe Coding 的映射**：
 
----
-
-### Slide 11｜自注意力机制：直觉理解
-
-**场景**：阅读句子 "The agent learns because **it** is intelligent."
-
-读到 "**it**" 时，大脑会自动将注意力放在 "agent" 上——自注意力就是对这种过程的数学建模。
-
-**三个核心角色**（每个词元都有）：
-
-| 角色              | 含义              | 类比         |
-| --------------- | --------------- | ---------- |
-| **Query (Q)**   | 当前词想找什么信息       | "你的问题"     |
-| **Key (K)**     | 这个词能提供什么索引      | "书名标签"     |
-| **Value (V)**   | 这个词实际携带的内容      | "书的内容"     |
-
-Q、K、V 都由输入向量乘以可学习的权重矩阵 $W^Q, W^K, W^V$ 得到。
+- Zero-shot ≈ 第一轮氛围 Prompt
+- Few-shot ≈ @文件引用提供示例
+- CoT ≈ Speckit 中的 plan 步骤
+- System Prompt ≈ Rules 文件
 
 ---
 
-### Slide 12｜自注意力机制：四步计算
+### Slide 21｜工具线衔接：从 Vibe Coding 到通用 PE
 
-**Step 1**：计算相关性得分 $QK^T$（每个词对其他所有词的关注度）
+| 第1讲 Vibe Coding 技巧 | 本讲 PE 方法论               | 本质     |
+| ------------------ | ----------------------- | ------ |
+| 两段式 Prompt         | Zero-shot → Few-shot 升级 | 迭代细化   |
+| Rules 文件           | System Prompt           | 全局风格控制 |
+| @文件引用              | Few-shot 示例 / 上下文注入     | 精准信息供给 |
+| Diff 审查            | 幻觉检测与验证                 | 输出质量把关 |
+| Inline Edit        | 参数调优（Temperature等）      | 快速迭代   |
 
-**Step 2**：缩放 $\div \sqrt{d_k}$（防止点积过大导致梯度过小）
-
-**Step 3**：Softmax 归一化（分数转为和为 1 的权重）
-
-**Step 4**：加权求和（权重 × V）
-
-**最终公式**：
-
-$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V$$
-
-**为什么除以 $\sqrt{d_k}$？** 当 $d_k$ 较大时，点积结果方差大，Softmax 后会落到梯度极小的区域，缩放后让分布更平滑。
+**核心认知**：Vibe Coding 就是 Prompt Engineering 在编程场景的具体应用。
 
 ---
 
-### Slide 13｜自注意力计算示例（3×3 手动推导）
+### Slide 22｜大模型 API 调用：消息结构
+
+**OpenAI 兼容 API 的 messages 格式**：
 
 ```python
-import numpy as np
-
-# 3 个词，每个词 4 维嵌入
-X = np.random.randn(3, 4)
-Q = K = V = X  # 简化：Q=K=V=X
-
-# Step 1: 相关性得分
-scores = Q @ K.T        # shape (3, 3)
-
-# Step 2: 缩放
-d_k = K.shape[-1]
-scaled_scores = scores / np.sqrt(d_k)
-
-# Step 3: Softmax
-def softmax(x):
-    x = x - x.max(axis=-1, keepdims=True)  # 数值稳定
-    exp_x = np.exp(x)
-    return exp_x / exp_x.sum(axis=-1, keepdims=True)
-
-weights = softmax(scaled_scores)   # 每行和为 1
-
-# Step 4: 加权求和
-output = weights @ V                # shape (3, 4)
+messages = [
+    {"role": "system", "content": "你是一个 NLP 助手..."},   # 系统指令
+    {"role": "user", "content": "请分析这段文本的情感"},       # 用户输入
+    {"role": "assistant", "content": "这段文本的情感是..."},  # AI 回复
+    {"role": "user", "content": "为什么这么判断？"}           # 多轮对话
+]
 ```
 
-**注意力权重矩阵可视化**（每行和为 1）：
+**三种角色**：
 
-|       | 词1    | 词2    | 词3    |
-| ----- | ----- | ----- | ----- |
-| 词1    | 0.6   | 0.3   | 0.1   |
-| 词2    | 0.2   | 0.5   | 0.3   |
-| 词3    | 0.1   | 0.4   | 0.5   |
+| role      | 作用                | 对应 Vibe Coding  |
+| --------- | ----------------- | --------------- |
+| system    | 全局指令，定义 AI 的身份和行为 | Rules 文件        |
+| user      | 用户的每一轮输入          | Chat 框中的 Prompt |
+| assistant | AI 的历史回复（多轮对话上下文） | 会话层上下文          |
 
 ---
 
-### Slide 14｜多头注意力：多角度并行关注
-
-**单头的局限**：只学会一种关联（如只关注主语）。
-
-**多头思想**：把 Q/K/V 在维度上切分成 h 份，每份独立做一次注意力，最后拼接：
-
-```
-原始 d_model = 768, num_heads = 12
-每个头维度 = 768 / 12 = 64
-12 个头各自从不同角度关注 → 拼接回 768 维 → 线性变换
-```
-
-| 类比         | 单头注意力             | 多头注意力                 |
-| ---------- | ----------------- | --------------------- |
-| 阅读         | 只关注"指代关系"         | 同时关注指代、时态、从属、修饰等     |
-| 专家         | 一个专家              | h 个专家从不同视角看           |
-
-**PyTorch 简化实现**：
+### Slide 23｜API 调用实践：环境配置
 
 ```python
-class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model, num_heads):
-        super().__init__()
-        self.d_k = d_model // num_heads
-        self.W_q = nn.Linear(d_model, d_model)
-        self.W_k = nn.Linear(d_model, d_model)
-        self.W_v = nn.Linear(d_model, d_model)
-        self.W_o = nn.Linear(d_model, d_model)
-
-    def forward(self, Q, K, V):
-        # 切分多头 → 各自做缩放点积注意力 → 拼接 → 线性变换
-        ...
-```
-
----
-
-### Slide 15｜前馈神经网络（FFN）
-
-**作用**：从注意力聚合后的信息中提取更高阶特征，**逐位置**独立处理。
-
-**结构**：两个线性变换 + ReLU 激活，"先扩大再缩小"：
-
-$$\text{FFN}(x) = \max(0, xW_1 + b_1)W_2 + b_2$$
-
-```python
-class PositionWiseFeedForward(nn.Module):
-    def __init__(self, d_model, d_ff, dropout=0.1):
-        super().__init__()
-        self.linear1 = nn.Linear(d_model, d_ff)   # 扩大：768 → 3072
-        self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(dropout)
-        self.linear2 = nn.Linear(d_ff, d_model)   # 缩小：3072 → 768
-
-    def forward(self, x):
-        return self.linear2(self.dropout(self.relu(self.linear1(x))))
-```
-
-**关键**：所有位置共享同一组权重，但独立处理——这就是"逐位置"的含义。
-
----
-
-### Slide 16｜残差连接与层归一化（Add & Norm）
-
-**每个子层都被 Add & Norm 包裹**：
-
-$$\text{Output} = \text{LayerNorm}(x + \text{Sublayer}(x))$$
-
-| 操作              | 解决的问题           | 原理                          |
-| --------------- | --------------- | --------------------------- |
-| **残差连接 (Add)**  | 深层网络梯度消失        | 梯度可绕过子层直接传播，x + Sublayer(x) |
-| **层归一化 (Norm)** | 内部协变量偏移         | 对单个样本所有特征归一化到均值 0、方差 1      |
-
-```python
-# Encoder 层中的 Add & Norm
-attn_output = self.self_attn(x, x, x, mask)
-x = self.norm1(x + self.dropout(attn_output))   # Add & Norm
-
-ff_output = self.feed_forward(x)
-x = self.norm2(x + self.dropout(ff_output))     # Add & Norm
-```
-
----
-
-### Slide 17｜位置编码：让注意力知道顺序
-
-**问题**：自注意力本身**不包含位置信息**——"agent learns" 和 "learns agent" 对它是等价的。
-
-**解决**：为每个位置加一个固定的位置向量（正弦/余弦函数生成）：
-
-$$PE_{(pos, 2i)} = \sin\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right), \quad PE_{(pos, 2i+1)} = \cos\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$$
-
-```python
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
-        super().__init__()
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(max_len).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2) * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)   # 偶数维 sin
-        pe[:, 1::2] = torch.cos(position * div_term)   # 奇数维 cos
-        self.register_buffer('pe', pe.unsqueeze(0))
-
-    def forward(self, x):
-        return self.dropout(x + self.pe[:, :x.size(1)])  # 加到词嵌入上
-```
-
-**特点**：不学习，直接用公式计算；不同位置的编码唯一；相对位置可由线性组合表达。
-
----
-
-### Slide 18｜Transformer 信息流动全景
-
-```
-输入嵌入 + 位置编码
-       │
-   ┌───┴───┐
-   │ Multi-Head Attention │  ← 多角度关注全局
-   └───┬───┘
-       │ Add & Norm
-   ┌───┴───┐
-   │ Feed-Forward Network │  ← 逐位置特征提取
-   └───┬───┘
-       │ Add & Norm
-       
-   下一层 Encoder（× N）
-```
-
-**Vibe Coding 衔接**：让 CodeBuddy 解读 `MultiHeadAttention` 源码，逐行解释 Q/K/V 切分、缩放点积、掩码、拼接的过程，比自己读源码快 3 倍。
-
----
-
-### Slide 19｜三种预训练架构总览
-
-| 架构                | 代表模型     | 注意力方向 | 训练目标        | 擅长任务           |
-| ----------------- | -------- | ----- | ----------- | -------------- |
-| **Encoder-Only**  | BERT     | 双向    | MLM（遮盖预测）   | 理解类：分类、NER、问答  |
-| **Decoder-Only**  | GPT      | 单向（因果） | CLM（预测下一个）  | 生成类：对话、写作、代码   |
-| **Encoder-Decoder** | T5 / BART | 编码双向 + 解码因果 | Seq2Seq     | 翻译、摘要、文本到文本    |
-
-```
-BERT:    [我] [爱] [北] [京]      全部双向看到
-GPT:     [我] → [爱] → [北] → [京]  只能看前文
-T5:      Encoder 理解输入 → Decoder 生成输出
-```
-
----
-
-### Slide 20｜BERT：双向理解之王
-
-**BERT (Bidirectional Encoder Representations from Transformers)**
-
-**核心创新**：Masked Language Model (MLM)
-
-```
-原始句子：我爱北京天安门
-遮盖后：  我 [MASK] 北京 [MASK] 门
-任务：    预测 [MASK] = "爱" 和 "天安"
-```
-
-**为什么 MLM 比CLM 更适合理解类任务？**
-
-| 训练目标 | 看到的上下文     | 适合任务     |
-| ------ | ---------- | -------- |
-| MLM    | 前后文都看到     | 分类、NER、问答 |
-| CLM    | 只看前文       | 生成、对话    |
-
-**BERT 微调下游任务**：在 [CLS] 位置的输出向量后接一个线性分类层即可。
-
----
-
-### Slide 21｜GPT：自回归生成之王
-
-**GPT (Generative Pre-trained Transformer)**
-
-**核心思想**：语言的本质就是**预测下一个词**——抛弃编码器，只用解码器。
-
-**Causal Language Model (CLM)**：
-
-```
-输入：[Datawhale Agent is]
-预测：[a]           ← 只看 "Datawhale Agent is"
-输入：[Datawhale Agent is a]
-预测：[powerful]    ← 只看 "Datawhale Agent is a"
-```
-
-**掩码自注意力 (Masked Self-Attention)**：训练时一次输入完整序列，但用三角掩码阻止位置 t 看到位置 >t 的内容：
-
-```
-掩码矩阵（下三角）：
-[1 0 0 0]
-[1 1 0 0]
-[1 1 1 0]
-[1 1 1 1]
-```
-
-GPT 系列从 GPT-1 到 GPT-4，参数量从 1.17 亿增长到万亿级，但架构核心不变。
-
----
-
-### Slide 22｜T5：统一的文本到文本框架
-
-**T5 (Text-to-Text Transfer Transformer)**：把所有 NLP 任务统一为"输入文本 → 输出文本"。
-
-| 任务     | 输入                          | 输出              |
-| ------ | --------------------------- | --------------- |
-| 翻译     | `translate English to French: The house is wonderful.` | `La maison est magnifique.` |
-| 摘要     | `summarize: [文章内容]`          | `[摘要]`          |
-| 分类     | `classify: [文本]`             | `positive`      |
-| 问答     | `question: ... context: ...` | `[答案]`          |
-
-**优势**：一个模型、一套训练方式处理所有任务。
-**劣势**：参数量大、推理慢于专用架构。
-
----
-
-### Slide 23｜如何选择预训练模型？
-
-**任务-架构对应表**：
-
-| 你的任务                | 推荐架构          | 推荐模型（中文）                       |
-| ------------------- | ------------- | ------------------------------ |
-| 文本分类（情感、意图）         | Encoder-Only  | bert-base-chinese / macbert    |
-| 命名实体识别 (NER)        | Encoder-Only  | bert-base-chinese              |
-| 问答（抽取式）             | Encoder-Only  | bert-base-chinese              |
-| 文本生成（对话、续写）         | Decoder-Only  | Qwen / ChatGLM / GPT           |
-| 翻译、摘要               | Encoder-Decoder | T5 / mT5 / BART                |
-| 通用嵌入（语义检索）          | Encoder-Only  | bge / text2vec / sentence-bert |
-
-**工程经验**：理解类任务首选 BERT 系列；生成类任务首选 GPT 系列；不要用 BERT 做生成，不要用 GPT 做分类。
-
----
-
-### Slide 24｜预训练：在海量数据上学习"语言能力"
-
-**预训练 (Pre-training)**：在大量无标注文本上自监督学习。
-
-| 模型       | 预训练数据                            | 数据规模              |
-| -------- | -------------------------------- | ----------------- |
-| BERT     | BookCorpus + English Wikipedia   | 3.3B tokens        |
-| GPT-3    | CommonCrawl + WebText2 + Books   | 570GB 文本           |
-| bert-base-chinese | 中文维基百科 + 新闻 + 百科                 | 约 100MB 中文文本       |
-
-**类比**：预训练 = "大学通识教育"，让模型掌握通用语言能力；微调 = "岗前专业培训"，针对具体任务调整。
-
-**为什么不需要从头训练？**
-
-| 方式       | 算力            | 数据              | 时间              |
-| -------- | ------------- | --------------- | --------------- |
-| 从零训练 BERT | 64 个 TPU × 4 天 | 3.3B tokens 标注  | 约 100 万美元        |
-| 微调 BERT  | 1 个 GPU × 1 小时 | 几千条标注数据         | 几乎免费             |
-
-迁移学习的价值：站在巨人肩膀上，用极少资源完成定制任务。
-
----
-
-### Slide 25｜MLM vs CLM：两种预训练目标对比
-
-**MLM（BERT 用）**：随机遮盖 15% 的 token，预测被遮盖的词
-
-```
-输入：我 [MASK] 北京 [MASK] 安 [MASK]
-目标：预测 [MASK] = "爱", "天", "门"
-```
-
-**CLM（GPT 用）**：逐词预测下一个词
-
-```
-输入：我 爱 北
-目标：预测下一个词 = "京"
-```
-
-| 训练目标 | 上下文        | 适合下游任务   | 代表模型   |
-| ------ | ---------- | -------- | ------ |
-| MLM    | 双向（前后都看）   | 理解类      | BERT   |
-| CLM    | 单向（只看前文）   | 生成类      | GPT    |
-
-**思考题预告**：为什么 BERT 选 MLM 而不是 CLM？（详见实验报告思考题 a）
-
----
-
-### Slide 26｜微调范式：预训练 + 微调两阶段
-
-**两阶段流程**：
-
-```
-阶段一：预训练（一次性，昂贵）
-   海量无标注语料 → 自监督学习 → 预训练模型（通用语言能力）
-
-阶段二：微调（每个任务一次，便宜）
-   少量带标注数据 → 监督学习 → 任务专用模型（特定任务能力）
-```
-
-**BERT 微调文本分类的完整流程**：
-
-```
-1. 加载预训练 BERT
-2. 在 [CLS] 输出后接线性分类头（输出 2 维 logits）
-3. 用带标签数据训练（交叉熵损失 + AdamW 优化器）
-4. 评估：Accuracy / F1
-```
-
-**与 sklearn 的对比**：
-
-| 对比项         | sklearn `model.fit()`     | BERT 微调                     |
-| ----------- | ------------------------ | --------------------------- |
-| 训练方式        | 闭式解 / 梯度下降               | 反向传播 + 优化器                  |
-| 数据预处理       | 数值化即可                    | Tokenization（input_ids 等）   |
-| 调用接口        | `model.fit(X, y)`        | `outputs = model(**inputs)` |
-| 学习率         | 默认即可                     | 必须很小（2e-5）                  |
-
----
-
-### Slide 27｜Hugging Face 生态导览
-
-**一站式 NLP 工具链**：
-
-| 库                  | 作用                       |
-| ------------------ | ------------------------ |
-| `transformers`     | 加载/使用预训练模型、Tokenizer      |
-| `datasets`         | 加载/处理数据集                 |
-| `tokenizers`       | 高性能 Tokenizer（Rust 实现）   |
-| `peft`             | 参数高效微调（LoRA 等）           |
-| `accelerate`       | 多 GPU / 混合精度训练加速         |
-| `Model Hub`        | 数万个预训练模型的中央仓库            |
-
-**核心 API 速览**：
-
-```python
-from transformers import (
-    AutoTokenizer,                        # 通用 Tokenizer 加载
-    AutoModel,                            # 通用模型加载（输出隐藏状态）
-    AutoModelForSequenceClassification,   # 文本分类模型（带分类头）
-    BertTokenizer,                        # BERT 专用 Tokenizer
-    BertForSequenceClassification,        # BERT 分类模型
-    pipeline                              # 一行代码完成任务
-)
-```
-
-`Auto*` 系列根据模型名自动选择对应类，推荐使用。
-
----
-
-### Slide 28｜pipeline：一行代码体验预训练模型
-
-```python
-from transformers import pipeline
-
-# 情感分析（默认英文模型）
-classifier = pipeline("sentiment-analysis")
-classifier("I love this hotel!")
-# [{'label': 'POSITIVE', 'score': 0.9998}]
-
-# 中文情感分析（指定中文模型）
-classifier = pipeline("sentiment-analysis", model="bert-base-chinese")
-classifier("这家酒店服务很好，房间干净。")
-# [{'label': 'LABEL_1', 'score': 0.99}]  # 1=正面
-
-# 命名实体识别
-ner = pipeline("ner")
-ner("张三在北京大学读书")
-# [{'entity': 'PER', 'word': '张三'}, {'entity': 'ORG', 'word': '北京大学'}]
-
-# 问答
-qa = pipeline("question-answering")
-qa(question="BERT 是什么？", context="BERT 是一个预训练语言模型...")
-```
-
-**适用场景**：快速原型验证、不要求定制时的开箱即用。
-
----
-
-### Slide 29｜Tokenizer 深入：从文本到模型输入
-
-**Tokenizer 的作用**：把文本转换为模型能处理的数字 ID 序列。
-
-```python
-from transformers import BertTokenizer
-
-tokenizer = BertTokenizer.from_pretrained("bert-base-chinese")
-encoding = tokenizer(
-    "酒店位置很好，服务态度也不错。",
-    padding="max_length",      # 填充到最大长度
-    truncation=True,           # 超长截断
-    max_length=32,             # 最大长度
-    return_tensors="pt"        # 返回 PyTorch 张量
+# 安装依赖
+# pip install openai tiktoken
+
+from openai import OpenAI
+
+# 创建客户端（课程统一使用 硅基流动 API）
+client = OpenAI(
+    api_key="sk-xxxxxxxx",  
+    base_url="https://api.siliconflow.cn/v1"
 )
 
-print(encoding.keys())
-# dict_keys(['input_ids', 'token_type_ids', 'attention_mask'])
-```
-
-| 输出字段                | 含义                  | 形状             |
-| ------------------- | ------------------- | -------------- |
-| `input_ids`         | 词元对应的 ID 序列         | (1, 32)        |
-| `attention_mask`    | 1=真实 token，0=padding | (1, 32)        |
-| `token_type_ids`    | 句对任务中区分上下句          | (1, 32)        |
-
-```
-原文：    酒店位置很好
-input_ids: [101, 6983, 2421, ..., 0, 0]   # 101=[CLS], 102=[SEP], 0=padding
-attention_mask: [1, 1, 1, ..., 0, 0]      # 1=关注，0=忽略
-```
-
----
-
-### Slide 39｜Vibe Coding 融合②：Inline Edit 调参
-
-**场景**：训练 Loss 不降，需要调超参数。
-
-**旧方式**：手动改代码 → 运行 → 再改 → 再运行...
-
-**Inline Edit 方式**：
-
-1. 选中 `lr=2e-5` → `Cmd+K`
-2. 输入："把学习率改成 5e-5，并加 warmup（前 10% 步数线性升温）"
-3. 查看 Diff → Accept
-
-```python
-# 修改前
-optimizer = AdamW(model.parameters(), lr=2e-5)
-
-# 修改后（CodeBuddy 生成）
-from transformers import get_linear_schedule_with_warmup
-optimizer = AdamW(model.parameters(), lr=5e-5)
-total_steps = len(train_loader) * 3
-scheduler = get_linear_schedule_with_warmup(
-    optimizer, num_warmup_steps=total_steps // 10,
-    num_training_steps=total_steps
-)
-```
-
-**斜杠指令调试**：
-- `/fix` —— 训练报错时一键定位问题
-- `/explain` —— 选中 `BertForSequenceClassification` 源码，逐行解释
-
----
-
-### Slide 40｜全参数微调的代价
-
-**BERT-base 的参数规模**：
-
-| 组件              | 参数量         |
-| --------------- | ----------- |
-| Embedding 层     | 23M         |
-| 12 层 Transformer | 85M         |
-| 分类头             | 1.5K        |
-| **总计**          | **约 1.1 亿** |
-
-**全参数微调的问题**：
-
-| 痛点          | 说明                          |
-| ----------- | --------------------------- |
-| 显存占用大       | 模型参数 + 梯度 + 优化器状态 ≈ 4 倍参数量  |
-| 存储成本高       | 每个任务一份完整模型副本                |
-| 部署困难        | 多任务需要多个大模型                  |
-| 容易过拟合       | 参数多、数据少时易记忆训练集              |
-
-**核心矛盾**：模型大才能学好，但大模型微调代价高——LoRA 等参数高效微调方法应运而生。
-
----
-
-### Slide 41｜PEFT 思想：冻结主干，只调少量参数
-
-**PEFT (Parameter-Efficient Fine-Tuning)**：冻结大部分预训练参数，只训练少量新增参数。
-
-| 方法              | 核心思想                  | 参数量        |
-| --------------- | --------------------- | ---------- |
-| **LoRA**        | 权重更新 ΔW = AB（低秩分解）    | 0.1%-1%    |
-| Prefix Tuning   | 在每层注意力前加可学习的前缀 token  | 1%-5%      |
-| P-Tuning v2     | 类似 Prefix，但更深         | 1%-5%      |
-| Adapter         | 在每层插入小型瓶颈网络           | 1%-5%      |
-| Prompt Tuning   | 只优化输入端的连续 prompt       | <1%        |
-
-**类比**：全参数微调 = 重写整本课本；PEFT = 在课本上加书签和批注，原书不动。
-
-**为什么有效？** 预训练模型已经学到通用语言能力，下游任务只需要"轻微调整"，不需要大幅改变参数。
-
----
-
-### Slide 42｜LoRA 核心原理：低秩分解
-
-**核心假设**：微调时的权重更新 ΔW 是低秩的，可以分解为两个小矩阵的乘积：
-
-$$W_{\text{new}} = W_{\text{pretrained}} + \Delta W = W_{\text{pretrained}} + AB$$
-
-其中：
-- $W$：原始权重矩阵，shape `(d, d)`，**冻结不动**
-- $A$：shape `(d, r)`，可训练
-- $B$：shape `(r, d)`，可训练
-- $r$：低秩维度，通常 4-64，远小于 $d$
-
-```
-原始：d × d = 768 × 768 = 589,824 参数
-LoRA：d × r + r × d = 768 × 8 + 8 × 768 = 12,288 参数（r=8）
-参数量降到原来的 2%！
-```
-
-**与 PCA 的相似之处**：
-
-| 对比项         | PCA                      | LoRA                      |
-| ----------- | ------------------------ | ------------------------- |
-| 目标          | 用低维空间近似高维数据              | 用低秩矩阵近似权重更新               |
-| 假设          | 数据本征维度低                  | 微调变化本征维度低                 |
-| 输出          | 主成分矩阵                    | A、B 两个小矩阵                 |
-
----
-
-### Slide 43｜LoRA 代码实战
-
-```python
-from peft import LoraConfig, get_peft_model, TaskType
-
-# 加载预训练模型（同任务2）
-model = BertForSequenceClassification.from_pretrained(
-    "bert-base-chinese", num_labels=2)
-
-# 配置 LoRA
-lora_config = LoraConfig(
-    task_type=TaskType.SEQ_CLS,        # 序列分类任务
-    r=8,                                # 低秩维度
-    lora_alpha=32,                      # 缩放系数（实际缩放 = alpha/r）
-    lora_dropout=0.1,                   # LoRA 层的 dropout
-    target_modules=["query", "value"]   # 对注意力的 Q 和 V 矩阵加 LoRA
+# 第一次调用
+response = client.chat.completions.create(
+    model="Qwen/Qwen3-8B",
+    messages=[
+        {"role": "system", "content": "你是一个简洁的助手，回答不超过50字"},
+        {"role": "user", "content": "什么是自然语言处理？"}
+    ],
+    temperature=0.3
 )
 
-# 用 LoRA 包装模型
-model = get_peft_model(model, lora_config)
-model.print_trainable_parameters()
-# trainable params: 294,912 || all params: 102,272,257 || trainable%: 0.29%
+print(response.choices[0].message.content)
+# → "自然语言处理（NLP）是让计算机理解、生成和处理人类语言的AI技术分支。"
 ```
 
-**关键观察**：可训练参数从 1.1 亿降到 29 万（0.29%），但效果接近全参数微调！
-
-后续训练循环与任务2完全一样——PEFT 的优雅之处。
-
 ---
 
-### Slide 44｜全参数 vs LoRA 对比
+### Slide 24｜API 实战：情感分类任务
 
-| 对比项                | 全参数微调        | LoRA 微调             |
-| ------------------ | ------------ | ------------------- |
-| 可训练参数量             | 1.1 亿 (100%) | 29 万 (0.29%)        |
-| 训练显存（batch=8）      | 约 4GB        | 约 1.5GB             |
-| 训练时间（3 epochs）     | 约 30 分钟      | 约 25 分钟             |
-| 模型存储（每个任务）         | 400MB        | 1MB（只存 LoRA 权重）     |
-| 最终 F1（hotel.csv）   | 约 0.92       | 约 0.90              |
-| 多任务部署              | 每任务一份完整模型    | 共享主干 + 多个 LoRA 头    |
+```python
+def classify_sentiment(text):
+    """使用 Few-shot + 结构化输出完成情感分类"""
+    system_prompt = """你是情感分析专家。对输入文本判断情感，严格按 JSON 格式输出。
+		输出格式：{"sentiment": "正面/负面/中性", "confidence": 0.0到1.0的浮点数}
+		不要添加任何其他内容。"""
+    response = client.chat.completions.create(
+        model="Qwen/Qwen3-8B",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f'文本："{text}"\n输出：'}
+        ],
+        temperature=0
+    )
+    return response.choices[0].message.content
 
-**结论**：
-- 数据量大、追求极致精度 → 全参数微调
-- 数据少、多任务、资源受限 → LoRA
-- 工程实践中 LoRA 已成为默认选择
-
----
-
-### Slide 45｜本讲知识地图（完整版）
-
-```
-N-gram → 神经网络语言模型 → RNN/LSTM → Transformer
-                                          │
-                              ┌───────────┼───────────┐
-                              │           │           │
-                            BERT         GPT         T5
-                          (理解)        (生成)      (转换)
-                              │
-                   ┌──────────┴──────────┐
-                   │                     │
-                全参数微调              LoRA 微调
-                (1.1亿参数)          (29万参数, 0.29%)
-                   │                     │
-              Transformers             peft 库
-              Trainer / 手写循环        get_peft_model
+# 测试
+print(classify_sentiment("这门课让我学到了很多新知识"))
+# → {"sentiment": "正面", "confidence": 0.92}
 ```
 
-**重点掌握**：
-- [完成] 自注意力 Q/K/V 计算流程
-- [完成] BERT 的 MLM 预训练目标
-- [完成] Hugging Face 微调完整流程
-- [完成] LoRA 低秩分解原理
+---
 
-**了解即可**：
-- Transformer 完整源码实现
-- T5 的文本到文本框架
-- 其他 PEFT 方法（Prefix、Adapter）
+### Slide 25｜API 实战：信息抽取任务
+
+```python
+def extract_info(review):
+    """从产品评论中提取结构化信息"""
+    response = client.chat.completions.create(
+        model="Qwen/Qwen3-8B",
+        messages=[
+            {"role": "system", "content": """你是信息抽取专家。
+				从产品评论中提取以下字段，严格按JSON格式输出：
+				{
+				  "product": "产品名称",
+				  "pros": ["优点列表"],
+				  "cons": ["缺点列表"],
+				  "rating": 推测评分(1-5)
+				}
+				不要添加任何其他内容。"""},
+            {"role": "user", "content": review}
+        ],
+        temperature=0
+    )
+    return response.choices[0].message.content
+
+result = extract_info(
+    "这款华为 MatePad 平板续航超强，能用一整天，"
+    "但是扬声器音质一般，看视频体验打折扣。"
+)
+print(result)
+```
 
 ---
 
-### Slide 46｜实验四说明 + 思考题
+### Slide 26｜API 实战：文本摘要任务
 
-**实验任务总览**：
+```python
+def summarize(text, max_words=50):
+    """使用 CoT 策略生成摘要"""
+    response = client.chat.completions.create(
+        model="Qwen/Qwen3-8B",
+        messages=[
+            {"role": "system", "content": f"""你是摘要专家。
+				请按以下步骤生成摘要：
+				1. 识别文本的核心主题
+				2. 提取 3 个关键信息点
+				3. 用不超过{max_words}字组织成流畅的摘要
+				只输出最终摘要，不需要展示中间步骤。"""},
+            {"role": "user", "content": text}
+        ],
+        temperature=0.3
+    )
+    return response.choices[0].message.content
+```
 
-| 任务                | 内容                          | 分值     |
-| ----------------- | --------------------------- | ------ |
-| 任务1               | NumPy 手动实现自注意力              | 35     |
-| 任务2               | BERT 酒店评论情感分类微调             | 65     |
-| 任务3（选做）           | LoRA 微调对比全参数微调               | +30    |
+**三类 NLP 任务的 PE 策略对比**：
 
-**思考题（三选一）**：
-
-a. 为什么 BERT 使用 MLM 而不是 CLM 进行预训练？MLM 和 CLM 分别适合哪类下游任务？
-
-b. 微调 BERT 时学习率通常设为 2e-5，远小于从零训练的值。为什么？设置过大会发生什么？
-
-c. LoRA 的核心思想是将 ΔW 分解为低秩矩阵 AB。为什么这个假设在微调场景下合理？它和 PCA 降维有什么相似之处？
-
-**参考资料**：
-1. Hello-Agents 第三章：大语言模型基础（3.1 Transformer 架构）
-2. Devlin et al. (2019). "BERT: Pre-training of Deep Bidirectional Transformers"
-3. Vaswani et al. (2017). "Attention Is All You Need"
-4. Hu et al. (2022). "LoRA: Low-Rank Adaptation of Large Language Models"
-5. Hugging Face 文档：https://huggingface.co/docs/transformers
+| 任务   | Temperature | 策略                          | 关键技巧   |
+| ---- | ----------- | --------------------------- | ------ |
+| 情感分类 | 0           | Few-shot + JSON             | 给示例锁格式 |
+| 信息抽取 | 0           | System Prompt + JSON Schema | 明确字段定义 |
+| 文本摘要 | 0.3         | CoT + 长度约束                  | 步骤引导   |
 
 ---
 
-## 附录：Vibe Coding 工具线融入点速查
+### Slide 27｜模型选择：四大考量维度
 
-| 知识点             | Vibe Coding 工具           | 融入方式                       |
-| --------------- | ------------------------ | -------------------------- |
-| Transformer 架构  | CodeBuddy `/explain`     | 让 AI 逐行解释 MultiHeadAttention 源码 |
-| Tokenizer 使用    | Inline Edit (`Cmd+K`)    | 选中代码 → 调整 max_length、padding 策略 |
-| 微调训练循环          | Speckit                  | 用 Spec 描述任务 → 生成训练脚本框架     |
-| 超参数调优           | CodeBuddy 对话             | "Loss 不降怎么办？过拟合怎么处理？"     |
-| LoRA 配置         | Rules (`.codebuddy/rules/`) | 定义项目规范：默认 LoRA rank=8     |
-| 实验调试            | 斜杠指令 `/fix`              | 训练报错时一键定位                  |
-| 代码审查            | 斜杠指令 `/cr`               | 审查微调代码的潜在问题                |
+**选择大模型不是"越大越强"，而是多维度权衡：**
 
-## 附录：Transformers 常用 API 速查
+| 维度        | 关键问题        | 权衡点                  |
+| --------- | ----------- | -------------------- |
+| **性能**    | 任务能力够不够？    | 推理/代码/中文等专项能力        |
+| **成本**    | Token 单价多少？ | 输入/输出分别计费            |
+| **速度**    | 响应延迟可接受吗？   | 首 Token 延迟、生成速度      |
+| **上下文长度** | 需要处理多长的文档？  | 4K / 32K / 128K / 2M |
 
-| 操作             | 代码                                                     |
-| -------------- | ------------------------------------------------------ |
-| 加载 Tokenizer   | `BertTokenizer.from_pretrained("bert-base-chinese")`   |
-| 加载分类模型         | `BertForSequenceClassification.from_pretrained(name, num_labels=2)` |
-| 文本编码           | `tokenizer(text, padding="max_length", truncation=True, max_length=128, return_tensors="pt")` |
-| 一行推理           | `pipeline("sentiment-analysis", model="bert-base-chinese")` |
-| 前向传播（含 loss）   | `outputs = model(input_ids=..., attention_mask=..., labels=...)` |
-| 获取 logits      | `outputs.logits`                                       |
-| 获取 loss        | `outputs.loss`                                         |
-| 优化器            | `AdamW(model.parameters(), lr=2e-5)`                   |
-| 学习率调度          | `get_linear_schedule_with_warmup(optimizer, warmup, total)` |
-| LoRA 配置        | `LoraConfig(task_type=TaskType.SEQ_CLS, r=8, target_modules=["query","value"])` |
-| LoRA 包装        | `model = get_peft_model(model, lora_config)`           |
-| 查看可训练参数        | `model.print_trainable_parameters()`                   |
+**选型决策树**：
 
-## 附录：关键公式速查
+```text
+需要最强推理/代码能力？ → 是 → GPT-5.5 / Claude Opus 4.8 / DeepSeek-V4-Pro
+→ 否 ↓
+数据敏感或需本地部署？ → 是 → Qwen3 / LLaMA 4 / DeepSeek-V4-Flash 开源版
+→ 否 ↓
+预算有限？ → 是 → DeepSeek-V4-Flash / Qwen3-8B（性价比高）
+→ 否 → 闭源 API（开箱即用）
+```
 
-| 概念          | 公式                                                          |
-| ----------- | ----------------------------------------------------------- |
-| 自注意力        | $\text{Attention}(Q,K,V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right) V$ |
-| FFN         | $\text{FFN}(x) = \max(0, xW_1 + b_1)W_2 + b_2$             |
-| 残差 + 层归一化   | $\text{Output} = \text{LayerNorm}(x + \text{Sublayer}(x))$ |
-| 位置编码（偶数维）   | $PE_{(pos, 2i)} = \sin\left(\frac{pos}{10000^{2i/d_{\text{model}}}}\right)$ |
-| LoRA 权重更新   | $W_{\text{new}} = W + AB$，A:(d,r), B:(r,d)                  |
-| 余弦相似度       | $\cos(\theta) = \frac{\vec{a} \cdot \vec{b}}{|\vec{a}||\vec{b}|}$ |
+---
+
+### Slide 28｜闭源模型概览
+
+| 模型               | 厂商        | 特点                        | 上下文  | 适用场景            |
+| ---------------- | --------- | ------------------------- | ---- | --------------- |
+| GPT-5.5          | OpenAI    | 最新旗舰，推理强，1M 上下文           | 1M   | 复杂推理、代码、多模态     |
+| Claude Opus 4.8  | Anthropic | 长文档处理强，安全性高               | 200K | 企业应用、文档分析       |
+| Gemini 2.5 Pro   | Google    | 原生多模态，超长上下文               | 2M   | 海量信息、视频理解       |
+| 通义千问 Qwen3.5     | 阿里        | 混合推理，中文优秀，成本低             | 256K | 中文对话、内容生成、推理    |
+| 智谱 GLM-5.2       | 智谱        | 744B MoE，Agent 能力强，MIT 开源 | 200K | 中文应用、代码、逻辑推理    |
+| DeepSeek-V4-Flash | 深度求索     | 284B MoE，轻量快速，性价比高         | 1M   | 日常任务、高并发、成本敏感   |
+| DeepSeek-V4-Pro  | 深度求索      | 1.6T MoE 旗舰，推理能力顶尖        | 1M   | 顶级推理、Agent 开发  |
+
+**特点**：开箱即用、性能前沿、按量计费、数据需上传
+
+---
+
+### Slide 29｜开源模型概览
+
+| 模型                  | 参数规模         | 特点                               | 适用场景          |
+| --------------------- | ------------ | -------------------------------- | ------------- |
+| LLaMA 4               | 17B-405B     | Meta 出品，原生多模态，生态成熟               | 研究、定制化        |
+| Qwen3（通义千问）      | 0.6B-235B    | 阿里出品，混合推理，中文强，多尺寸               | 中文应用、边缘到云端部署  |
+| DeepSeek-V4-Flash     | 284B (MoE)   | MIT 开源，轻量快速，1M 上下文，性价比极高        | 日常任务、高并发、成本敏感 |
+| DeepSeek-V4-Pro       | 1600B (MoE)  | MIT 开源，旗舰推理，1M 上下文               | 复杂推理、数学、Agent |
+| GLM-5.2（智谱）        | 744B (MoE)   | MIT 开源，Agent 能力强，200K 上下文        | 中文应用、代码、逻辑推理  |
+| Mistral / Mixtral     | 7B-141B(MoE) | 欧洲出品，小尺寸高性能                      | 资源受限环境、多语言    |
+
+**开源 vs 闭源对比**：
+
+| 维度  | 闭源         | 开源           |
+| --- | ---------- | ------------ |
+| 部署  | API 调用即可   | 需本地 GPU/下载权重 |
+| 成本  | 按 Token 计费 | 仅硬件成本        |
+| 定制  | 只能调 Prompt | 可微调权重        |
+| 数据  | 需上传到厂商     | 完全本地，数据安全    |
+| 性能  | 通常更强       | 中等模型略弱       |
+
+> 开源模型的本地部署与微调将在第5讲深入展开。
+
+---
+
+### Slide 30｜缩放法则（Scaling Laws）
+
+**核心发现：模型性能与参数量、数据量、计算量呈幂律关系**
+
+$$L(N) \propto N^{-\alpha}, \quad L(D) \propto D^{-\beta}, \quad L(C) \propto C^{-\gamma}$$
+
+**三个关键洞察**：
+
+1. **持续投入有回报**：按比例增加参数/数据/算力，性能可预测提升
+2. **Chinchilla 定律**（DeepMind 2022）：给定算力预算下，参数量和数据量存在最优配比——70B 模型 + 4倍数据，性能超越 175B 的 GPT-3
+3. **能力涌现**：模型规模达阈值后突然出现新能力（CoT 推理、指令遵循、代码生成）
+
+**对开发者的启示**：
+
+- 选模型时不能只看参数量，还要看训练数据量
+- "涌现能力"意味着复杂任务需要足够大的模型
+- 2023 年后模型同质化加剧，差距主要在数据和对齐
+
+---
+
+### Slide 31｜模型幻觉（Hallucination）
+
+**幻觉 = 模型自信地生成与事实矛盾或不存在的内容**
+
+**三种典型幻觉**：
+
+| 类型    | 示例                | 特点          |
+| ----- | ----------------- | ----------- |
+| 事实性幻觉 | 虚构论文引用、不存在的历史事件   | 最常见，最危险     |
+| 忠实性幻觉 | 总结时偏离原文、添加未提及内容   | RAG 系统的高发问题 |
+| 逻辑幻觉  | 推理链条中间步骤出错但结论看似合理 | CoT 也无法完全避免 |
+
+**产生原因**：
+
+- 训练数据含错误/矛盾信息
+- 自回归生成本质是"预测下一个最可能的词"，无事实核查
+- 知识时效性：训练截止后的事件模型不知道
+
+---
+
+### Slide 32｜幻觉缓解策略
+
+**四层防护**：
+
+| 层级           | 策略           | 示例                    |
+| ------------ | ------------ | --------------------- |
+| **Prompt 层** | 明确边界         | "如果不确定，请说'我不知道'，不要编造" |
+| **推理层**      | CoT 自我验证     | 让模型分步推理后再检查每一步        |
+| **系统层**      | RAG 检索增强     | 先查文档再回答               |
+| **工程层**      | 多模型投票 + 人工审核 | 关键场景必须人工把关            |
+
+**Prompt 层缓解示例**：
+
+```
+请仅基于以下文档回答问题，不要使用文档外的知识。
+如果文档中没有相关信息，请明确说"文档中未提及"。
+
+【文档】...
+【问题】...
+```
+
+第1讲的"Diff 审查"习惯，本质上就是人工幻觉检测。
+
+---
+
+### Slide 33｜本讲知识地图
+
+```text
+NLP 基础与 Prompt 工程
+├── 语言模型演进
+│   ├── N-gram → RNN/LSTM → Transformer（预告第4讲深入）
+│   └── Decoder-Only 架构（GPT 系列）
+├── 分词（Tokenization）
+│   ├── 子词分词思想
+│   ├── BPE 算法（贪心合并）
+│   └── tiktoken 工具（Token 计算）
+├── 采样参数
+│   ├── Temperature（随机性）
+│   ├── Top-k / Top-p（候选截断）
+│   └── 组合策略
+├── Prompt Engineering
+│   ├── Zero/One/Few-shot
+│   ├── 角色扮演（System Prompt）
+│   ├── 思维链（CoT）
+│   ├── 结构化输出
+│   └── 策略决策树
+├── API 调用
+│   ├── messages 结构
+│   └── 三类 NLP 任务实战
+├── 模型选择
+│   └── 闭源 vs 开源
+└── 局限性
+    ├── 缩放法则
+    └── 模型幻觉 + 缓解策略
+```
+
+---
+
+### Slide 34｜实验任务总览
+
+| 任务       | 内容                       | 核心技巧                    | 分值  |
+| -------- | ------------------------ | ----------------------- | --- |
+| 任务1（40分） | BPE 分词算法实现 + tiktoken 对比 | Python 实现 BPE 训练过程      | 40  |
+| 任务2（60分） | Prompt Engineering 对比实验  | Zero/Few-shot/CoT 三策略对比 | 60  |
+| 任务3（**选做**，+35分） | 大模型 API 应用开发      | 情感分类 + 信息抽取 + 摘要        | +35 |
+
+> 必做满分 100 分，完成任务3可额外获得 35 分加分。
+
+**实验数据**：课程统一提供 DeepSeek API Key，三组真实文本数据放在 `实验三/` 目录
+
+**完成标准**：
+
+- 任务1、2为必做，提交可运行代码 + 运行结果截图
+- 任务2需提交三种策略的输出对比表
+- 任务3为选做，完成任务1、2即视为完成必做部分；完成任务3者需提交 JSON 结构化输出
+
+---
+### Slide 38｜本讲小结
+
+**知识收获**：
+
+- 语言模型演进：N-gram → RNN/LSTM → Transformer（Decoder-Only）
+- 分词原理：子词分词、BPE 算法、tiktoken 工具
+- 采样参数：Temperature / Top-k / Top-p 的原理与组合
+- Prompt Engineering：Zero/Few-shot、角色扮演、CoT、结构化输出
+- API 调用：messages 结构 + 三类 NLP 任务实战
+- 模型选择：闭源 vs 开源的四维权衡
+- 局限性：缩放法则 + 幻觉成因与缓解
+
+---
+
+### Slide 40｜课后作业
+
+1. 完成实验三任务1、任务2（必做），有余力者完成任务3（选做），提交实验报告
+
+2. **思考题（三选一）**：
+   
+   - a. Temperature=0 和 Temperature=1.5 分别适合什么场景？做代码生成助手该如何设置采样参数？
+   
+   - b. CoT 为什么能提升推理准确率？它有什么局限性？什么场景下反而会降低性能？
+   
+   - c. 大模型的"幻觉"如何检测？RAG 和 CoT 自我验证哪种更适合"事实性问答"？
+
+3. **拓展阅读**：
+   
+   - OpenAI Prompt Engineering Guide
+   
+   - Wei et al. (2022). Chain-of-Thought Prompting
+   
+   - Kaplan et al. (2020). Scaling Laws for Neural Language Models
+
+---
+
+## 附录：Prompt Engineering 速查表
+
+| 策略        | 适用场景       | 关键写法         |
+| --------- | ---------- | ------------ |
+| Zero-shot | 简单任务、模型能力强 | 直接下指令        |
+| One-shot  | 需要格式示范     | 给一个示例        |
+| Few-shot  | 任务边界复杂     | 给 3-5 个示例    |
+| 角色扮演      | 需要专业风格     | "你是一位资深..."  |
+| CoT       | 推理/计算任务    | "请一步一步地思考"   |
+| 结构化输出     | 需程序解析      | 给 JSON 模板    |
+| 约束边界      | 防幻觉        | "仅基于以下文档..." |
+
+## 附录：采样参数速查表
+
+| 参数          | 范围    | 作用     | 推荐值                    |
+| ----------- | ----- | ------ | ---------------------- |
+| Temperature | 0-2   | 控制随机性  | 代码:0 / 对话:0.7 / 创意:1.0 |
+| Top-k       | 1-100 | 候选词数量  | 40 (通用)                |
+| Top-p       | 0-1   | 累积概率阈值 | 0.9 (通用)               |
+| max_tokens  | -     | 最大生成长度 | 根据任务设                  |
+| stream      | bool  | 流式输出   | True (用户体验好)           |
+
+## 附录：OpenAI 兼容 API 速查
+
+| 操作          | 代码                                                        |
+| ----------- | --------------------------------------------------------- |
+| 创建客户端       | `client = OpenAI(api_key=..., base_url=...)`              |
+| 对话补全        | `client.chat.completions.create(model=..., messages=...)` |
+| 取回复内容       | `response.choices[0].message.content`                     |
+| 取 Token 用量  | `response.usage.total_tokens`                             |
+| 流式输出        | `stream=True`, 迭代 `response`                              |
+| tiktoken 编码 | `enc = tiktoken.encoding_for_model("gpt-4")`              |
+| 计算 Token 数  | `len(enc.encode(text))`                                   |
