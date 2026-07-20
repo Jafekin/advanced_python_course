@@ -1,4 +1,4 @@
-# 第三讲：NLP 基础与 Prompt 工程
+# 第四讲：NLP 基础与 Prompt 工程
 
 ## PPT 内容大纲（约 52 张 Slides）
 
@@ -6,17 +6,18 @@
 
 ### Slide 1｜封面
 
-**标题**：Python 进阶 · 第 3 讲
+**标题**：Python 进阶 · 第 4 讲
 **副标题**：NLP 基础与 Prompt 工程
 **教师**：孙青 / 欧阳元新 · 计算机学院
 **平台**：CloudStudio + CodeBuddy
 
 ### Slide 3｜导入：你一直在和大模型对话
 
-**回顾前两讲经验：**
+**回顾前三讲经验：**
 
-- 第1讲：在 CloudStudio 里写了两段式 Prompt 驱动 AI 生成 Pandas 代码
-- 第2讲：用 Speckit 描述建模需求，AI 自动选择 sklearn 算法
+- 第1讲：两段式 Prompt 驱动 AI 生成 Pandas 数据处理代码
+- 第2讲：让 AI 推荐可视化方案、三轮迭代优化图表
+- 第3讲：用 Spec-driven 约束 AI 实现工程化模块
 
 **问题**：你知道 AI 是如何理解这些 Prompt 的吗？
 
@@ -34,7 +35,7 @@
 
 ```text
 第1-2讲：使用 AI 工具完成数据分析和建模任务
-第3讲：  理解 AI 背后的原理，系统化地设计 Prompt
+第4讲：  理解 AI 背后的原理，系统化地设计 Prompt
 ```
 
 **本讲的核心收获：**
@@ -79,7 +80,7 @@ $$\text{Attention}(Q,K,V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V$
 - 因果掩码：只能看到当前位置之前的词，不能偷看后面
 - 自回归生成：一个词一个词地往后写
 
-> 本讲只做概念性介绍，Transformer 细节将在第四讲深入展开。
+> 本讲只做概念性介绍，Transformer 细节将在第五讲深入展开。
 
 ---
 
@@ -649,7 +650,7 @@ def summarize(text, max_words=50):
 | 数据  | 需上传到厂商     | 完全本地，数据安全    |
 | 性能  | 通常更强       | 中等模型略弱       |
 
-> 开源模型的本地部署与微调将在第5讲深入展开。
+> 开源模型的本地部署与微调将在第5-6讲深入展开。
 
 ---
 
@@ -723,7 +724,7 @@ $$L(N) \propto N^{-\alpha}, \quad L(D) \propto D^{-\beta}, \quad L(C) \propto C^
 ```text
 NLP 基础与 Prompt 工程
 ├── 语言模型演进
-│   ├── N-gram → RNN/LSTM → Transformer（预告第4讲深入）
+│   ├── N-gram → RNN/LSTM → Transformer（预告第5讲深入）
 │   └── Decoder-Only 架构（GPT 系列）
 ├── 分词（Tokenization）
 │   ├── 子词分词思想
