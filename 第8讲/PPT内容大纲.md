@@ -790,51 +790,73 @@ MCP 方式（标准化）:
 
 ### Slide 33｜什么是 Skill？  `[notebook c45]`
 
-**Skill = 可复用的 Agent 能力单元**
+**Skill = 以 `SKILL.md` 为入口的可复用 Agent 能力包**
 
-```
-Skill = Prompt 模板 + 工具集 + 行为约束 + 输出格式
-```
+本讲不把 Skill 当成临时写在 Python 字典里的 Prompt。请以随课提供的 `第8讲/skills/` 目录为准：一个 Skill 是一个独立文件夹，根目录的 `SKILL.md` 用 **YAML frontmatter + Markdown 指令**描述它何时触发、如何完成任务。
 
-| 组成 | 说明 | 示例 |
+| 组成 | 在 `SKILL.md` 中的位置 | 示例 |
 |---|---|---|
-| **Prompt 模板** | 定义角色和任务 | "你是航天产业分析师..." |
-| **工具集** | 可用的工具列表 | [rag_search, calculator] |
-| **行为约束** | 做什么、不做什么 | "必须基于报告数据，不可编造" |
-| **输出格式** | 回答的结构要求 | "使用中文，包含数据来源" |
+| **触发元数据** | frontmatter 的 `name`、`description` | 什么任务应调用该 Skill |
+| **工作流程** | Markdown 的步骤说明 | 先检索，再计算，再核对 |
+| **工具与边界** | 可用工具、禁止动作、确认条件 | 只用 `rag_search`、`calculator` |
+| **产出与验证** | 输出结构、测试提示词、检查项 | 结论 + 证据 + 来源 |
 
 **Skill 解决了什么问题？**
-- 不同用户面对同一 Agent，可以给它不同的 Skill 来适应不同场景
-- 一个 Agent + 多个 Skill = 一个多面手助手
-- Skill 可以分享、复用、版本管理
+- 将已验证的工作流从一次性 Prompt 变成可阅读、可复用、可版本管理的能力包
+- 让 Agent 在合适的任务上触发合适的指令，而不是靠每次对话临时拼接
+- 让工具边界、输出要求和验证方式能够随项目一起交付
 
 ---
 
 ### Slide 34｜Skill 的结构（写法概览）  `[notebook c46]`
 
-**一个 Skill 的四段结构**：
+**从提供的模板开始，而不是从零猜格式**：
 
-```
-┌─────────────────────────────────────┐
-│ 1. 身份定义（name + description）    │
-│    "我是谁，我能做什么"              │
-├─────────────────────────────────────┤
-│ 2. System Prompt（角色 + 流程）      │
-│    "我该怎么工作"                    │
-│    - 工作流程步骤                    │
-│    - 行为约束规则                    │
-├─────────────────────────────────────┤
-│ 3. 工具集（tools）                   │
-│    "我能用什么"                      │
-│    - rag_search, calculator          │
-├─────────────────────────────────────┤
-│ 4. 输出格式（output_format）         │
-│    "我的产出长什么样"                │
-│    - 分析结论 / 数据依据 / 来源      │
-└─────────────────────────────────────┘
+```text
+第8讲/
+└── skills/
+    ├── README_zh.md                         # 技能库导航与概念说明
+    ├── template/SKILL.md                     # 新建 Skill 的最小模板
+    ├── skills/skill-creator/SKILL.md         # 需求—编写—测试—迭代方法
+    ├── skills/mcp-builder/SKILL.md           # MCP 工具服务器示例
+    └── spec/agent-skills-spec.md             # Agent Skills 规范入口
 ```
 
-> 详见 notebook c46 的 Python 字典实现示例
+**一个合格 `SKILL.md` 的课堂结构**：
+
+```markdown
+---
+name: aerospace-analyst
+description: 在用户需要基于给定报告完成航天产业分析时使用。
+---
+
+# Aerospace Analyst
+
+## 工作流程
+1. 检索证据；2. 必要时计算；3. 核对并回答。
+
+## 工具边界与输出要求
+- 仅使用允许的工具；无证据时明确说明。
+- 输出：结论、数据依据、来源。
+```
+
+> 详见 notebook c46：它会直接读取 `skills/template/SKILL.md`，并在内存中构造、检查一个符合模板的示例。
+
+---
+
+### Slide 35｜如何阅读随课 `skills/` 文件夹
+
+| 先看什么 | 路径（相对 `第8讲/`） | 课堂用途 |
+|---|---|---|
+| 技能库说明 | `skills/README_zh.md` | 区分模板、规范和示例技能 |
+| 最小模板 | `skills/template/SKILL.md` | 复制后改成自己的 Skill，保留 frontmatter |
+| 创建与评估方法 | `skills/skills/skill-creator/SKILL.md` | 明确触发条件、写测试提示词、根据结果迭代 |
+| MCP 工具设计案例 | `skills/skills/mcp-builder/SKILL.md` | 观察 Skill 如何约束工具接口与错误处理 |
+| 规范入口 | `skills/spec/agent-skills-spec.md` | 查阅 Agent Skills 规范链接 |
+
+**课堂操作**：阅读模板 → 选择一个示例 Skill 拆解结构 → 在实验目录创建自己的 `skills/<skill-name>/SKILL.md` → 用 2–3 条测试提示词检查触发与输出。
+
+> 注意：参考示例的结构和验证方法，不直接复制与本任务无关的工具、品牌或工作流。
 
 ---
 
