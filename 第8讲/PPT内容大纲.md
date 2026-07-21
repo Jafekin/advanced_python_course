@@ -899,7 +899,7 @@ Skills + MCP       Spec-driven 部署     HuggingFace
 | Skill | Prompt + 工具 + 约束 = 可复用的 Agent 能力单元 |
 
 **实验八**（课程最终实验）：
-- 基于航天产业报告构建智能问答 Agent
+- 自定义智能 Agent 系统
 - 5 个任务：RAG 工具封装 / ReAct Agent / 多轮记忆 / Gradio 界面 / 行为分析
 - 满分 100 分，综合运用第1-6讲所学
 
