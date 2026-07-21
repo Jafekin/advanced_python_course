@@ -109,3 +109,28 @@
 ## 使用方式
 
 直接在本地打开对应目录查看和编辑文件，按主题分类管理即可。
+
+## 在单台课程服务器上从 GitHub 拉取指定讲次
+
+每讲使用独立服务器时，将 `scripts/pull_lesson_from_github.sh` 上传到对应服务器并在**服务器上**运行。脚本会要求输入数字 `1`–`8`；首次运行时从 GitHub 对本仓库做稀疏 clone，之后只会保留并更新所选讲次。默认下载目录为服务器的 `/workspace`。
+
+```bash
+# 在本机将脚本上传到某台课程服务器（以第 3 讲服务器为例）
+scp scripts/pull_lesson_from_github.sh ubuntu@YOUR_SERVER:/opt/course-tools/
+
+# 登录该服务器后，交互选择讲次
+ssh ubuntu@YOUR_SERVER
+bash /opt/course-tools/pull_lesson_from_github.sh
+```
+
+也可在服务器上指定讲次和仓库保存位置：
+
+```bash
+# 第一次下载或后续更新第 3 讲
+bash /opt/course-tools/pull_lesson_from_github.sh --lesson 3
+
+# 查看全部可选讲次
+bash /opt/course-tools/pull_lesson_from_github.sh --list
+```
+
+脚本会把 Git 缓存放在 `$HOME/.cache/advanced_python_course`，不会读取、更不会修改 CloudStudio 等环境中 `/workspace` 已有仓库的 `origin`。讲次文件默认同步到 `/workspace/第X讲`；`assets`、`scripts`、`.gitattributes`、`.gitignore`、`LICENSE`、`README.md` 等仓库根目录内容均不会同步到 `/workspace`。脚本默认从 `https://github.com/Jafekin/advanced_python_course.git` 的 `main` 分支拉取，并使用 `git pull --ff-only origin main` 更新。因此服务器需要能够访问 GitHub，且安装 Git 2.25 或更高版本。更新时脚本使用系统自带的 `tar` 创建完整暂存副本后再替换所选的 `/workspace/第X讲`，因此不依赖 `rsync`；它只清理所选讲次目录内已不再存在的文件，不会触碰 `/workspace` 中的其他内容。
